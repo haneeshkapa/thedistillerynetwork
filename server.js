@@ -51,20 +51,19 @@ async function findCustomerByPhone(phone) {
     }
     
     return rows.find(row => {
-      // Check various phone fields and raw data
-      const possiblePhones = [
-        row.Phone, row.phone, row.PHONE,
-        row['Phone Number'], row['phone number'],
-        row._rawData[5], // Email might be in position 5, phone could be elsewhere
-        row._rawData[6], row._rawData[7], row._rawData[8],
-        row._rawData[12], row._rawData[13] // Try other positions
-      ];
+      // Phone is in position 6 (7th column) based on your data
+      const phoneField = row._rawData[6];
       
-      return possiblePhones.some(fieldPhone => {
-        if (!fieldPhone) return false;
-        const rowPhone = fieldPhone.toString().replace(/[\s\-\(\)]/g, '');
-        return rowPhone.includes(cleanPhone) || cleanPhone.includes(rowPhone);
-      });
+      if (!phoneField) return false;
+      
+      // Convert scientific notation to regular number if needed
+      let phoneStr = phoneField.toString();
+      if (phoneStr.includes('E+')) {
+        phoneStr = Number(phoneField).toString();
+      }
+      
+      const rowPhone = phoneStr.replace(/[\s\-\(\)\.]/g, '');
+      return rowPhone === cleanPhone || rowPhone.includes(cleanPhone) || cleanPhone.includes(rowPhone);
     });
   } catch (error) {
     console.error('Error finding customer:', error);
@@ -88,16 +87,23 @@ app.post('/reply', async (req, res) => {
     
     let prompt;
     if (customer) {
+      // Map data based on your sheet structure
+      const name = customer._rawData[2] || customer.shipping_name || 'N/A';
+      const orderId = customer._rawData[0] || 'N/A';
+      const product = customer._rawData[1] || 'N/A';
+      const email = customer._rawData[5] || 'N/A';
+      const phone = customer._rawData[6] || 'N/A';
+      const created = customer._rawData[3] || 'N/A';
+      
       prompt = `You are a helpful customer service representative. A customer has sent the following message: "${message}"
 
 Customer Information:
-- Name: ${customer.Name || customer.name || 'N/A'}
-- Phone: ${customer.Phone || customer.phone || 'N/A'}  
-- Order ID: ${customer.OrderID || customer['Order ID'] || customer.orderid || 'N/A'}
-- Product: ${customer.Product || customer.product || 'N/A'}
-- Status: ${customer.Status || customer.status || 'N/A'}
-- Delivery Date: ${customer.DeliveryDate || customer['Delivery Date'] || customer.deliverydate || 'N/A'}
-- Notes: ${customer.Notes || customer.notes || 'N/A'}
+- Name: ${name}
+- Phone: ${phone}  
+- Order ID: ${orderId}
+- Product: ${product}
+- Order Date: ${created}
+- Email: ${email}
 
 Please provide a helpful, professional, and friendly response. Keep it concise and conversational like an SMS. If they're asking about their order, provide relevant details from the information above.`;
     } else {
@@ -121,9 +127,9 @@ I don't have their order information in our system. Please provide a helpful, pr
       reply: reply,
       customerFound: !!customer,
       customerInfo: customer ? {
-        name: customer.Name || customer.name,
-        orderId: customer.OrderID || customer['Order ID'] || customer.orderid,
-        status: customer.Status || customer.status
+        name: customer._rawData[2],
+        orderId: customer._rawData[0],
+        product: customer._rawData[1]
       } : null
     });
 
