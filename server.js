@@ -21,29 +21,50 @@ const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID);
 
 async function initializeGoogleSheets() {
   try {
-    await doc.useServiceAccountAuth({
+    const creds = {
       client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
       private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-    });
+    };
+    await doc.useServiceAccountAuth(creds);
     await doc.loadInfo();
     console.log('Google Sheets connected successfully');
+    console.log('Sheet title:', doc.title);
   } catch (error) {
-    console.error('Failed to connect to Google Sheets:', error);
+    console.error('Failed to connect to Google Sheets:', error.message);
+    console.log('Make sure your sheet is shared with:', process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL);
   }
 }
 
 // Helper function to find customer by phone
 async function findCustomerByPhone(phone) {
   try {
-    const sheet = doc.sheetsByTitle['Orders'] || doc.sheetsByIndex[0];
+    const sheet = doc.sheetsByIndex[0]; // Use first sheet
     const rows = await sheet.getRows();
     
     // Clean phone number (remove spaces, dashes, parentheses)
     const cleanPhone = phone.replace(/[\s\-\(\)]/g, '');
     
+    // Log first row to understand structure
+    if (rows.length > 0) {
+      console.log('Sheet headers:', Object.keys(rows[0]));
+      console.log('First row data:', rows[0]._rawData);
+    }
+    
     return rows.find(row => {
-      const rowPhone = (row.Phone || row.phone || '').replace(/[\s\-\(\)]/g, '');
-      return rowPhone.includes(cleanPhone) || cleanPhone.includes(rowPhone);
+      // Check various phone fields and raw data
+      const possiblePhones = [
+        row.Phone, row.phone, row.PHONE,
+        row['Phone Number'], row['phone number'],
+        row._rawData[5], // Email might be in position 5, phone could be elsewhere
+        row._rawData[6], row._rawData[7], row._rawData[8],
+        row._rawData[12], row._rawData[13] // Try other positions
+      ];
+      
+      return possiblePhones.some(fieldPhone => {
+        if (!fieldPhone) return false;
+        const rowPhone = fieldPhone.toString().replace(/[\s\-\(\)]/g, '');
+        return rowPhone.includes(cleanPhone) || cleanPhone.includes(rowPhone);
+      });
     });
   } catch (error) {
     console.error('Error finding customer:', error);
@@ -113,6 +134,19 @@ I don't have their order information in our system. Please provide a helpful, pr
       reply: 'Sorry, I\'m having trouble processing your request right now. Please try again later or call our support line.'
     });
   }
+});
+
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({ 
+    message: 'Claude SMS Bot is running!',
+    endpoints: {
+      health: '/health',
+      customer: '/customer/:phone',
+      sms_reply: 'POST /reply'
+    },
+    status: 'OK'
+  });
 });
 
 // Health check endpoint
