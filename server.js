@@ -21,7 +21,7 @@ async function testClaudeAPI() {
   try {
     console.log('Testing Claude API connection...');
     const testResponse = await anthropic.messages.create({
-      model: 'claude-3-sonnet-20240229',
+      model: 'claude-3-5-sonnet-20241022',
       max_tokens: 50,
       messages: [{ role: 'user', content: 'Say hello' }]
     });
@@ -135,7 +135,7 @@ I don't have their order information in our system. Please provide a helpful, pr
     console.log('API Key starts with:', process.env.ANTHROPIC_API_KEY?.substring(0, 10));
     
     const response = await anthropic.messages.create({
-      model: 'claude-3-sonnet-20240229',
+      model: 'claude-3-5-sonnet-20241022',
       max_tokens: 300,
       messages: [{ role: 'user', content: prompt }]
     });
