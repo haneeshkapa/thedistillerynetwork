@@ -16,6 +16,23 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
+// Test Claude API on startup
+async function testClaudeAPI() {
+  try {
+    console.log('Testing Claude API connection...');
+    const testResponse = await anthropic.messages.create({
+      model: 'claude-3-sonnet-20240229',
+      max_tokens: 50,
+      messages: [{ role: 'user', content: 'Say hello' }]
+    });
+    console.log('✅ Claude API connected successfully:', testResponse.content[0].text);
+  } catch (error) {
+    console.error('❌ Claude API test failed:', error.message);
+    if (error.status) console.error('Status:', error.status);
+    if (error.error) console.error('Error details:', error.error);
+  }
+}
+
 // Google Sheets setup
 const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID);
 
@@ -113,7 +130,9 @@ I don't have their order information in our system. Please provide a helpful, pr
     }
 
     // Get response from Claude
-    console.log('Sending prompt to Claude:', prompt);
+    console.log('Sending prompt to Claude...');
+    console.log('API Key exists:', !!process.env.ANTHROPIC_API_KEY);
+    console.log('API Key starts with:', process.env.ANTHROPIC_API_KEY?.substring(0, 10));
     
     const response = await anthropic.messages.create({
       model: 'claude-3-sonnet-20240229',
@@ -138,9 +157,17 @@ I don't have their order information in our system. Please provide a helpful, pr
 
   } catch (error) {
     console.error('Error processing request:', error);
+    console.error('Error details:', {
+      message: error.message,
+      status: error.status,
+      type: error.type,
+      stack: error.stack
+    });
+    
     res.status(500).json({ 
       error: 'Internal server error',
-      reply: 'Sorry, I\'m having trouble processing your request right now. Please try again later or call our support line.'
+      reply: 'Sorry, I\'m having trouble processing your request right now. Please try again later or call our support line.',
+      debug: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -198,6 +225,7 @@ app.get('/customer/:phone', async (req, res) => {
 app.listen(port, async () => {
   console.log(`Server running on port ${port}`);
   await initializeGoogleSheets();
+  await testClaudeAPI();
 });
 
 module.exports = app;
