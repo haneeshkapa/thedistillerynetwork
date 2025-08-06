@@ -164,12 +164,29 @@ app.get('/health', (req, res) => {
 app.get('/customer/:phone', async (req, res) => {
   try {
     const customer = await findCustomerByPhone(req.params.phone);
+    
+    // Debug logging
+    console.log('Looking for phone:', req.params.phone);
+    
     if (customer) {
-      res.json({ found: true, customer: customer._rawData });
+      console.log('Found customer:', customer._rawData);
+      res.json({ 
+        found: true, 
+        customer: customer._rawData,
+        customerInfo: {
+          name: customer._rawData[2],
+          orderId: customer._rawData[0],
+          product: customer._rawData[1],
+          phone: customer._rawData[6],
+          email: customer._rawData[5]
+        }
+      });
     } else {
+      console.log('Customer not found');
       res.json({ found: false, message: 'Customer not found' });
     }
   } catch (error) {
+    console.error('Customer lookup error:', error);
     res.status(500).json({ error: error.message });
   }
 });
