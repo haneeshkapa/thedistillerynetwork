@@ -113,6 +113,8 @@ I don't have their order information in our system. Please provide a helpful, pr
     }
 
     // Get response from Claude
+    console.log('Sending prompt to Claude:', prompt);
+    
     const response = await anthropic.messages.create({
       model: 'claude-3-sonnet-20240229',
       max_tokens: 300,
@@ -120,6 +122,7 @@ I don't have their order information in our system. Please provide a helpful, pr
     });
 
     const reply = response.content[0].text;
+    console.log('Claude response received:', reply);
     
     console.log(`Generated reply: ${reply}`);
 
