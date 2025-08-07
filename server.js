@@ -2,6 +2,11 @@ const express = require('express');
 const cors = require('cors');
 const { GoogleSpreadsheet } = require('google-spreadsheet');
 const Anthropic = require('@anthropic-ai/sdk');
+const multer = require('multer');
+const pdfParse = require('pdf-parse');
+const XLSX = require('xlsx');
+const fs = require('fs');
+const path = require('path');
 require('dotenv').config();
 
 const app = express();
@@ -10,6 +15,19 @@ const port = process.env.PORT || 3000;
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use(express.static('.'));
+
+// File upload configuration
+const upload = multer({ 
+  dest: 'uploads/',
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+});
+
+// Ensure uploads directory exists
+const uploadsDir = 'uploads';
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir);
+}
 
 // Initialize Anthropic client
 const anthropic = new Anthropic({
@@ -102,6 +120,9 @@ app.post('/reply', async (req, res) => {
     // Find customer in Google Sheets
     const customer = await findCustomerByPhone(phone);
     
+    // Get conversation history for context
+    const conversationHistory = getConversationHistory(phone, 5); // Last 5 messages
+    
     let prompt;
     if (customer) {
       // Map data based on your sheet structure
@@ -112,21 +133,61 @@ app.post('/reply', async (req, res) => {
       const phone = customer._rawData[6] || 'N/A';
       const created = customer._rawData[3] || 'N/A';
       
-      prompt = `You are a helpful customer service representative. A customer has sent the following message: "${message}"
+      // Get personality and knowledge from environment and uploaded files
+      const personality = personalityText || process.env.CLAUDE_PERSONALITY || "You are a helpful customer service representative";
+      const envKnowledge = process.env.CLAUDE_KNOWLEDGE || "";
+      const fileKnowledge = knowledgeBase || "";
+      const combinedKnowledge = [envKnowledge, fileKnowledge].filter(k => k).join('\n\n');
+      
+      // Format conversation history
+      let historyContext = '';
+      if (conversationHistory.length > 0) {
+        historyContext = '\n\nPREVIOUS CONVERSATION:\n';
+        conversationHistory.forEach((msg, i) => {
+          historyContext += `[${new Date(msg.timestamp).toLocaleString()}]\n`;
+          historyContext += `Customer: ${msg.customerMessage}\n`;
+          historyContext += `You: ${msg.botResponse}\n\n`;
+        });
+        historyContext += 'CURRENT MESSAGE:\n';
+      }
+      
+      prompt = `${personality}
 
-Customer Information:
+${combinedKnowledge ? `COMPANY KNOWLEDGE:\n${combinedKnowledge}\n\n` : ""}Customer Information:
 - Name: ${name}
 - Phone: ${phone}  
 - Order ID: ${orderId}
 - Product: ${product}
 - Order Date: ${created}
-- Email: ${email}
+- Email: ${email}${historyContext}
+Customer has sent: "${message}"
 
-Please provide a helpful, professional, and friendly response. Keep it concise and conversational like an SMS. If they're asking about their order, provide relevant details from the information above.`;
+Respond in your natural style, keeping it concise like an SMS. Use the customer info, company knowledge, and conversation history to provide helpful, contextual assistance. Reference previous conversations when relevant.`;
     } else {
-      prompt = `You are a helpful customer service representative. A customer has sent the following message: "${message}"
+      // Get personality and knowledge from environment and uploaded files
+      const personality = personalityText || process.env.CLAUDE_PERSONALITY || "You are a helpful customer service representative";
+      const envKnowledge = process.env.CLAUDE_KNOWLEDGE || "";
+      const fileKnowledge = knowledgeBase || "";
+      const combinedKnowledge = [envKnowledge, fileKnowledge].filter(k => k).join('\n\n');
+      
+      // Format conversation history
+      let historyContext = '';
+      if (conversationHistory.length > 0) {
+        historyContext = '\n\nPREVIOUS CONVERSATION:\n';
+        conversationHistory.forEach((msg, i) => {
+          historyContext += `[${new Date(msg.timestamp).toLocaleString()}]\n`;
+          historyContext += `Customer: ${msg.customerMessage}\n`;
+          historyContext += `You: ${msg.botResponse}\n\n`;
+        });
+        historyContext += 'CURRENT MESSAGE:\n';
+      }
+      
+      prompt = `${personality}
 
-I don't have their order information in our system. Please provide a helpful, professional response asking them to provide their order number or contact information so you can assist them better. Keep it concise and conversational like an SMS.`;
+${combinedKnowledge ? `COMPANY KNOWLEDGE:\n${combinedKnowledge}\n\n` : ""}${historyContext}
+Customer has sent: "${message}"
+
+I don't have their order information in our system. Respond in your natural style, using the conversation history to provide context. Ask them to provide their order number or contact information so you can assist them better. Keep it concise like an SMS.`;
     }
 
     // Get response from Claude
@@ -144,6 +205,33 @@ I don't have their order information in our system. Please provide a helpful, pr
     console.log('Claude response received:', reply);
     
     console.log(`Generated reply: ${reply}`);
+    
+    // Log this conversation
+    const customerInfo = customer ? {
+      name: customer._rawData[2],
+      orderId: customer._rawData[0],
+      product: customer._rawData[1]
+    } : null;
+    
+    logChatMessage(phone, message, reply, customerInfo);
+
+    // Push reply back to Tasker (if configured)
+    if (process.env.TASKER_PUSH_URL) {
+      try {
+        const pushResponse = await fetch(process.env.TASKER_PUSH_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            phone: phone,
+            message: reply,
+            action: 'send_sms'
+          })
+        });
+        console.log('Pushed reply to Tasker:', pushResponse.ok);
+      } catch (pushError) {
+        console.error('Failed to push to Tasker:', pushError.message);
+      }
+    }
 
     res.json({ 
       reply: reply,
@@ -179,10 +267,16 @@ app.get('/', (req, res) => {
     endpoints: {
       health: '/health',
       customer: '/customer/:phone',
-      sms_reply: 'POST /reply'
+      sms_reply: 'POST /reply',
+      management: '/management.html'
     },
     status: 'OK'
   });
+});
+
+// Explicit route for management dashboard
+app.get('/management.html', (req, res) => {
+  res.sendFile(path.join(__dirname, 'management.html'));
 });
 
 // Health check endpoint
@@ -221,9 +315,456 @@ app.get('/customer/:phone', async (req, res) => {
   }
 });
 
+// Knowledge base and personality storage
+let knowledgeBase = '';
+let knowledgeHistory = []; // Track uploaded files
+let personalityText = '';
+
+// Chat logging system
+const chatLogFile = path.join(__dirname, 'chat_logs.json');
+let chatHistory = {};
+
+// Load existing chat logs on startup
+function loadChatLogs() {
+  try {
+    if (fs.existsSync(chatLogFile)) {
+      const data = fs.readFileSync(chatLogFile, 'utf8');
+      chatHistory = JSON.parse(data);
+      console.log(`Loaded chat history for ${Object.keys(chatHistory).length} customers`);
+    }
+  } catch (error) {
+    console.error('Failed to load chat logs:', error);
+    chatHistory = {};
+  }
+}
+
+// Save chat logs to file
+function saveChatLogs() {
+  try {
+    fs.writeFileSync(chatLogFile, JSON.stringify(chatHistory, null, 2));
+  } catch (error) {
+    console.error('Failed to save chat logs:', error);
+  }
+}
+
+// Add chat message to history
+function logChatMessage(phone, message, response, customerInfo = null) {
+  if (!chatHistory[phone]) {
+    chatHistory[phone] = {
+      phone: phone,
+      customerInfo: customerInfo,
+      messages: [],
+      firstContact: new Date().toISOString(),
+      lastContact: new Date().toISOString(),
+      totalMessages: 0
+    };
+  }
+  
+  const chatEntry = {
+    timestamp: new Date().toISOString(),
+    customerMessage: message,
+    botResponse: response,
+    customerFound: !!customerInfo
+  };
+  
+  chatHistory[phone].messages.push(chatEntry);
+  chatHistory[phone].lastContact = new Date().toISOString();
+  chatHistory[phone].totalMessages = chatHistory[phone].messages.length;
+  
+  // Update customer info if found
+  if (customerInfo) {
+    chatHistory[phone].customerInfo = customerInfo;
+  }
+  
+  // Keep only last 50 messages per customer to prevent excessive memory usage
+  if (chatHistory[phone].messages.length > 50) {
+    chatHistory[phone].messages = chatHistory[phone].messages.slice(-50);
+  }
+  
+  // Save to file (async)
+  setTimeout(saveChatLogs, 100);
+}
+
+// Get conversation history for a customer
+function getConversationHistory(phone, limit = 10) {
+  if (!chatHistory[phone]) return [];
+  
+  return chatHistory[phone].messages.slice(-limit);
+}
+
+// File processing functions
+async function processPDF(filePath) {
+  try {
+    const dataBuffer = fs.readFileSync(filePath);
+    const data = await pdfParse(dataBuffer);
+    return data.text;
+  } catch (error) {
+    console.error('PDF processing error:', error);
+    throw error;
+  }
+}
+
+function processExcel(filePath) {
+  try {
+    const workbook = XLSX.readFile(filePath);
+    let allText = '';
+    
+    workbook.SheetNames.forEach(sheetName => {
+      const sheet = workbook.Sheets[sheetName];
+      const data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+      
+      allText += `Sheet: ${sheetName}\n`;
+      data.forEach(row => {
+        if (row.length > 0) {
+          allText += row.join(' | ') + '\n';
+        }
+      });
+      allText += '\n';
+    });
+    
+    return allText;
+  } catch (error) {
+    console.error('Excel processing error:', error);
+    throw error;
+  }
+}
+
+// Upload knowledge base file endpoint
+app.post('/upload-knowledge', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const filePath = req.file.path;
+    const fileName = req.file.originalname;
+    const fileExt = path.extname(fileName).toLowerCase();
+    
+    console.log(`Processing knowledge file: ${fileName}`);
+    
+    let extractedText = '';
+    
+    if (fileExt === '.pdf') {
+      extractedText = await processPDF(filePath);
+    } else if (['.xlsx', '.xls', '.csv'].includes(fileExt)) {
+      extractedText = processExcel(filePath);
+    } else {
+      // Plain text files
+      extractedText = fs.readFileSync(filePath, 'utf8');
+    }
+    
+    // Store in memory and track history
+    const timestamp = new Date().toISOString();
+    const knowledgeEntry = {
+      id: Date.now(),
+      fileName: fileName,
+      fileType: fileExt,
+      content: extractedText,
+      uploadedAt: timestamp,
+      size: extractedText.length
+    };
+    
+    knowledgeHistory.push(knowledgeEntry);
+    knowledgeBase = knowledgeHistory.map(k => `[${k.fileName}]\n${k.content}`).join('\n\n---\n\n');
+    
+    // Clean up uploaded file
+    fs.unlinkSync(filePath);
+    
+    console.log(`Knowledge base updated with ${extractedText.length} characters from ${fileName}`);
+    
+    res.json({ 
+      message: 'Knowledge base updated successfully',
+      fileName: fileName,
+      size: extractedText.length,
+      preview: extractedText.substring(0, 200) + '...'
+    });
+    
+  } catch (error) {
+    console.error('Upload error:', error);
+    res.status(500).json({ error: 'Failed to process file' });
+  }
+});
+
+// Get current knowledge base with full details
+app.get('/knowledge', (req, res) => {
+  res.json({
+    hasKnowledge: !!knowledgeBase,
+    size: knowledgeBase.length,
+    preview: knowledgeBase.substring(0, 500) + (knowledgeBase.length > 500 ? '...' : ''),
+    history: knowledgeHistory.map(k => ({
+      id: k.id,
+      fileName: k.fileName,
+      fileType: k.fileType,
+      uploadedAt: k.uploadedAt,
+      size: k.size,
+      preview: k.content.substring(0, 200) + (k.content.length > 200 ? '...' : '')
+    })),
+    totalFiles: knowledgeHistory.length
+  });
+});
+
+// Add text-based knowledge
+app.post('/knowledge/text', (req, res) => {
+  try {
+    const { text, title } = req.body;
+    
+    if (!text) {
+      return res.status(400).json({ error: 'Text content is required' });
+    }
+
+    const timestamp = new Date().toISOString();
+    const knowledgeEntry = {
+      id: Date.now(),
+      fileName: title || `Text Entry ${knowledgeHistory.length + 1}`,
+      fileType: '.txt',
+      content: text,
+      uploadedAt: timestamp,
+      size: text.length
+    };
+    
+    knowledgeHistory.push(knowledgeEntry);
+    knowledgeBase = knowledgeHistory.map(k => `[${k.fileName}]\n${k.content}`).join('\n\n---\n\n');
+    
+    console.log(`Added text knowledge: ${knowledgeEntry.fileName} (${text.length} chars)`);
+    
+    res.json({
+      message: 'Text knowledge added successfully',
+      id: knowledgeEntry.id,
+      fileName: knowledgeEntry.fileName,
+      size: text.length
+    });
+    
+  } catch (error) {
+    console.error('Text knowledge error:', error);
+    res.status(500).json({ error: 'Failed to add text knowledge' });
+  }
+});
+
+// Update knowledge entry
+app.put('/knowledge/:id', (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const { content, title } = req.body;
+    
+    const entryIndex = knowledgeHistory.findIndex(k => k.id === id);
+    if (entryIndex === -1) {
+      return res.status(404).json({ error: 'Knowledge entry not found' });
+    }
+    
+    if (content !== undefined) knowledgeHistory[entryIndex].content = content;
+    if (title !== undefined) knowledgeHistory[entryIndex].fileName = title;
+    knowledgeHistory[entryIndex].size = knowledgeHistory[entryIndex].content.length;
+    
+    // Rebuild knowledge base
+    knowledgeBase = knowledgeHistory.map(k => `[${k.fileName}]\n${k.content}`).join('\n\n---\n\n');
+    
+    res.json({
+      message: 'Knowledge updated successfully',
+      entry: knowledgeHistory[entryIndex]
+    });
+    
+  } catch (error) {
+    console.error('Update knowledge error:', error);
+    res.status(500).json({ error: 'Failed to update knowledge' });
+  }
+});
+
+// Delete knowledge entry
+app.delete('/knowledge/:id', (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const entryIndex = knowledgeHistory.findIndex(k => k.id === id);
+    
+    if (entryIndex === -1) {
+      return res.status(404).json({ error: 'Knowledge entry not found' });
+    }
+    
+    const deletedEntry = knowledgeHistory.splice(entryIndex, 1)[0];
+    
+    // Rebuild knowledge base
+    knowledgeBase = knowledgeHistory.map(k => `[${k.fileName}]\n${k.content}`).join('\n\n---\n\n');
+    
+    console.log(`Deleted knowledge: ${deletedEntry.fileName}`);
+    
+    res.json({
+      message: 'Knowledge deleted successfully',
+      deletedEntry: deletedEntry.fileName
+    });
+    
+  } catch (error) {
+    console.error('Delete knowledge error:', error);
+    res.status(500).json({ error: 'Failed to delete knowledge' });
+  }
+});
+
+// Clear all knowledge
+app.delete('/knowledge', (req, res) => {
+  knowledgeHistory = [];
+  knowledgeBase = '';
+  
+  console.log('All knowledge cleared');
+  
+  res.json({ message: 'All knowledge cleared successfully' });
+});
+
+// PERSONALITY MANAGEMENT
+
+// Get current personality
+app.get('/personality', (req, res) => {
+  const envPersonality = process.env.CLAUDE_PERSONALITY || '';
+  const currentPersonality = personalityText || envPersonality || "You are a helpful customer service representative";
+  
+  res.json({
+    current: currentPersonality,
+    source: personalityText ? 'uploaded' : (envPersonality ? 'environment' : 'default'),
+    hasCustom: !!personalityText,
+    size: currentPersonality.length
+  });
+});
+
+// Update personality via text
+app.post('/personality', (req, res) => {
+  try {
+    const { personality } = req.body;
+    
+    if (!personality) {
+      return res.status(400).json({ error: 'Personality text is required' });
+    }
+    
+    personalityText = personality;
+    
+    console.log(`Personality updated (${personality.length} chars)`);
+    
+    res.json({
+      message: 'Personality updated successfully',
+      size: personality.length,
+      preview: personality.substring(0, 200) + (personality.length > 200 ? '...' : '')
+    });
+    
+  } catch (error) {
+    console.error('Personality update error:', error);
+    res.status(500).json({ error: 'Failed to update personality' });
+  }
+});
+
+// Upload personality file
+app.post('/personality/upload', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const filePath = req.file.path;
+    const fileName = req.file.originalname;
+    const fileExt = path.extname(fileName).toLowerCase();
+    
+    let extractedText = '';
+    
+    if (fileExt === '.pdf') {
+      extractedText = await processPDF(filePath);
+    } else if (['.xlsx', '.xls', '.csv'].includes(fileExt)) {
+      extractedText = processExcel(filePath);
+    } else {
+      // Plain text files
+      extractedText = fs.readFileSync(filePath, 'utf8');
+    }
+    
+    personalityText = extractedText;
+    
+    // Clean up uploaded file
+    fs.unlinkSync(filePath);
+    
+    console.log(`Personality uploaded from file: ${fileName} (${extractedText.length} chars)`);
+    
+    res.json({
+      message: 'Personality uploaded successfully',
+      fileName: fileName,
+      size: extractedText.length,
+      preview: extractedText.substring(0, 200) + (extractedText.length > 200 ? '...' : '')
+    });
+    
+  } catch (error) {
+    console.error('Personality upload error:', error);
+    res.status(500).json({ error: 'Failed to upload personality file' });
+  }
+});
+
+// Reset personality to default/environment
+app.delete('/personality', (req, res) => {
+  personalityText = '';
+  
+  console.log('Personality reset to default/environment');
+  
+  res.json({
+    message: 'Personality reset to default/environment',
+    current: process.env.CLAUDE_PERSONALITY || "You are a helpful customer service representative"
+  });
+});
+
+// CHAT HISTORY MANAGEMENT
+
+// Get all chat logs
+app.get('/chat-logs', (req, res) => {
+  const logs = Object.values(chatHistory).map(chat => ({
+    phone: chat.phone,
+    customerInfo: chat.customerInfo,
+    firstContact: chat.firstContact,
+    lastContact: chat.lastContact,
+    totalMessages: chat.totalMessages,
+    recentMessage: chat.messages.length > 0 ? chat.messages[chat.messages.length - 1] : null
+  })).sort((a, b) => new Date(b.lastContact) - new Date(a.lastContact));
+  
+  res.json({
+    totalCustomers: logs.length,
+    logs: logs
+  });
+});
+
+// Get detailed conversation for specific customer
+app.get('/chat-logs/:phone', (req, res) => {
+  const phone = req.params.phone;
+  const chat = chatHistory[phone];
+  
+  if (!chat) {
+    return res.status(404).json({ error: 'No conversation found for this phone number' });
+  }
+  
+  res.json(chat);
+});
+
+// Delete conversation history for specific customer
+app.delete('/chat-logs/:phone', (req, res) => {
+  const phone = req.params.phone;
+  
+  if (!chatHistory[phone]) {
+    return res.status(404).json({ error: 'No conversation found for this phone number' });
+  }
+  
+  delete chatHistory[phone];
+  saveChatLogs();
+  
+  res.json({ message: 'Conversation history deleted successfully' });
+});
+
+// Clear all chat logs
+app.delete('/chat-logs', (req, res) => {
+  chatHistory = {};
+  saveChatLogs();
+  
+  res.json({ message: 'All chat logs cleared successfully' });
+});
+
+// Export chat logs as JSON
+app.get('/chat-logs/export/json', (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Content-Disposition', 'attachment; filename=chat_logs_export.json');
+  res.json(chatHistory);
+});
+
 // Start server
 app.listen(port, async () => {
   console.log(`Server running on port ${port}`);
+  loadChatLogs(); // Load existing chat logs
   await initializeGoogleSheets();
   await testClaudeAPI();
 });
