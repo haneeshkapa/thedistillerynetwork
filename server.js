@@ -1,5 +1,7 @@
 const express = require('express');
 const cors = require('cors');
+const session = require('express-session');
+const crypto = require('crypto');
 const { GoogleSpreadsheet } = require('google-spreadsheet');
 const Anthropic = require('@anthropic-ai/sdk');
 const multer = require('multer');
@@ -12,9 +14,33 @@ require('dotenv').config();
 const app = express();
 const port = process.env.PORT || 3000;
 
+// Authentication configuration
+const ADMIN_PIN = process.env.ADMIN_PIN || '1234'; // Default PIN, should be changed in production
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(64).toString('hex');
+
+// Session middleware
+app.use(session({
+  secret: SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: false, // Set to true in production with HTTPS
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  }
+}));
+
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Custom static file serving with authentication for management.html
+app.use((req, res, next) => {
+  if (req.path === '/management.html') {
+    return requireAuth(req, res, next);
+  }
+  next();
+});
+
 app.use(express.static('.'));
 
 // File upload configuration
@@ -28,6 +54,138 @@ const uploadsDir = 'uploads';
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir);
 }
+
+// Ensure data directory exists
+const dataDir = 'data';
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir);
+}
+
+// File paths for persistent storage
+const KNOWLEDGE_FILE = path.join(dataDir, 'knowledge.json');
+const PERSONALITY_FILE = path.join(dataDir, 'personality.json');
+
+// File system utilities for persistent storage
+function saveKnowledgeToFile() {
+  try {
+    fs.writeFileSync(KNOWLEDGE_FILE, JSON.stringify(knowledgeHistory, null, 2));
+    console.log('Knowledge saved to file');
+  } catch (error) {
+    console.error('Error saving knowledge:', error);
+  }
+}
+
+function loadKnowledgeFromFile() {
+  try {
+    if (fs.existsSync(KNOWLEDGE_FILE)) {
+      const data = fs.readFileSync(KNOWLEDGE_FILE, 'utf8');
+      const loadedHistory = JSON.parse(data);
+      knowledgeHistory = loadedHistory;
+      knowledgeBase = knowledgeHistory.map(k => `[${k.fileName}]\n${k.content}`).join('\n\n---\n\n');
+      console.log(`Loaded ${knowledgeHistory.length} knowledge entries from file`);
+    }
+  } catch (error) {
+    console.error('Error loading knowledge:', error);
+    knowledgeHistory = [];
+    knowledgeBase = '';
+  }
+}
+
+function savePersonalityToFile() {
+  try {
+    const personalityData = {
+      text: personalityText,
+      source: personalityText ? 'uploaded' : 'default',
+      updatedAt: new Date().toISOString()
+    };
+    fs.writeFileSync(PERSONALITY_FILE, JSON.stringify(personalityData, null, 2));
+    console.log('Personality saved to file');
+  } catch (error) {
+    console.error('Error saving personality:', error);
+  }
+}
+
+function loadPersonalityFromFile() {
+  try {
+    if (fs.existsSync(PERSONALITY_FILE)) {
+      const data = fs.readFileSync(PERSONALITY_FILE, 'utf8');
+      const personalityData = JSON.parse(data);
+      personalityText = personalityData.text || '';
+      console.log('Loaded personality from file');
+    }
+  } catch (error) {
+    console.error('Error loading personality:', error);
+    personalityText = '';
+  }
+}
+
+// Authentication middleware
+function requireAuth(req, res, next) {
+  if (req.session && req.session.authenticated) {
+    return next();
+  } else {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+}
+
+// Generate session token
+function generateToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+// Authentication routes
+app.post('/admin/login', (req, res) => {
+  const { pin } = req.body;
+  
+  if (!pin) {
+    return res.status(400).json({ error: 'PIN is required' });
+  }
+  
+  if (pin === ADMIN_PIN) {
+    req.session.authenticated = true;
+    req.session.loginTime = new Date().toISOString();
+    const token = generateToken();
+    req.session.token = token;
+    
+    console.log(`Admin login successful at ${req.session.loginTime}`);
+    
+    res.json({
+      success: true,
+      message: 'Login successful',
+      token: token
+    });
+  } else {
+    console.log(`Failed login attempt with PIN: ${pin} at ${new Date().toISOString()}`);
+    res.status(401).json({
+      success: false,
+      message: 'Invalid PIN'
+    });
+  }
+});
+
+app.get('/admin/verify', (req, res) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader && authHeader.split(' ')[1]; // Bearer token
+  
+  if (req.session && req.session.authenticated && req.session.token === token) {
+    res.json({ valid: true });
+  } else {
+    res.json({ valid: false });
+  }
+});
+
+app.post('/admin/logout', (req, res) => {
+  if (req.session) {
+    req.session.destroy((err) => {
+      if (err) {
+        return res.status(500).json({ error: 'Could not log out' });
+      }
+      res.json({ message: 'Logout successful' });
+    });
+  } else {
+    res.json({ message: 'No active session' });
+  }
+});
 
 // Initialize Anthropic client
 const anthropic = new Anthropic({
@@ -326,6 +484,10 @@ let knowledgeBase = '';
 let knowledgeHistory = []; // Track uploaded files
 let personalityText = '';
 
+// Load existing data on startup
+loadKnowledgeFromFile();
+loadPersonalityFromFile();
+
 // Chat logging system
 const chatLogFile = path.join(__dirname, 'chat_logs.json');
 let chatHistory = {};
@@ -436,7 +598,7 @@ function processExcel(filePath) {
 }
 
 // Upload knowledge base file endpoint
-app.post('/upload-knowledge', upload.single('file'), async (req, res) => {
+app.post('/upload-knowledge', requireAuth, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
@@ -473,6 +635,9 @@ app.post('/upload-knowledge', upload.single('file'), async (req, res) => {
     knowledgeHistory.push(knowledgeEntry);
     knowledgeBase = knowledgeHistory.map(k => `[${k.fileName}]\n${k.content}`).join('\n\n---\n\n');
     
+    // Save to persistent storage
+    saveKnowledgeToFile();
+    
     // Clean up uploaded file
     fs.unlinkSync(filePath);
     
@@ -492,7 +657,7 @@ app.post('/upload-knowledge', upload.single('file'), async (req, res) => {
 });
 
 // Get current knowledge base with full details
-app.get('/knowledge', (req, res) => {
+app.get('/knowledge', requireAuth, (req, res) => {
   res.json({
     hasKnowledge: !!knowledgeBase,
     size: knowledgeBase.length,
@@ -510,7 +675,7 @@ app.get('/knowledge', (req, res) => {
 });
 
 // Add text-based knowledge
-app.post('/knowledge/text', (req, res) => {
+app.post('/knowledge/text', requireAuth, (req, res) => {
   try {
     const { text, title } = req.body;
     
@@ -531,6 +696,9 @@ app.post('/knowledge/text', (req, res) => {
     knowledgeHistory.push(knowledgeEntry);
     knowledgeBase = knowledgeHistory.map(k => `[${k.fileName}]\n${k.content}`).join('\n\n---\n\n');
     
+    // Save to persistent storage
+    saveKnowledgeToFile();
+    
     console.log(`Added text knowledge: ${knowledgeEntry.fileName} (${text.length} chars)`);
     
     res.json({
@@ -547,7 +715,7 @@ app.post('/knowledge/text', (req, res) => {
 });
 
 // Update knowledge entry
-app.put('/knowledge/:id', (req, res) => {
+app.put('/knowledge/:id', requireAuth, (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const { content, title } = req.body;
@@ -564,6 +732,9 @@ app.put('/knowledge/:id', (req, res) => {
     // Rebuild knowledge base
     knowledgeBase = knowledgeHistory.map(k => `[${k.fileName}]\n${k.content}`).join('\n\n---\n\n');
     
+    // Save to persistent storage
+    saveKnowledgeToFile();
+    
     res.json({
       message: 'Knowledge updated successfully',
       entry: knowledgeHistory[entryIndex]
@@ -576,7 +747,7 @@ app.put('/knowledge/:id', (req, res) => {
 });
 
 // Delete knowledge entry
-app.delete('/knowledge/:id', (req, res) => {
+app.delete('/knowledge/:id', requireAuth, (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const entryIndex = knowledgeHistory.findIndex(k => k.id === id);
@@ -589,6 +760,9 @@ app.delete('/knowledge/:id', (req, res) => {
     
     // Rebuild knowledge base
     knowledgeBase = knowledgeHistory.map(k => `[${k.fileName}]\n${k.content}`).join('\n\n---\n\n');
+    
+    // Save to persistent storage
+    saveKnowledgeToFile();
     
     console.log(`Deleted knowledge: ${deletedEntry.fileName}`);
     
@@ -604,9 +778,12 @@ app.delete('/knowledge/:id', (req, res) => {
 });
 
 // Clear all knowledge
-app.delete('/knowledge', (req, res) => {
+app.delete('/knowledge', requireAuth, (req, res) => {
   knowledgeHistory = [];
   knowledgeBase = '';
+  
+  // Save to persistent storage
+  saveKnowledgeToFile();
   
   console.log('All knowledge cleared');
   
@@ -616,7 +793,7 @@ app.delete('/knowledge', (req, res) => {
 // PERSONALITY MANAGEMENT
 
 // Get current personality
-app.get('/personality', (req, res) => {
+app.get('/personality', requireAuth, (req, res) => {
   const envPersonality = process.env.CLAUDE_PERSONALITY || '';
   const currentPersonality = personalityText || envPersonality || "You are a helpful customer service representative";
   
@@ -629,7 +806,7 @@ app.get('/personality', (req, res) => {
 });
 
 // Update personality via text
-app.post('/personality', (req, res) => {
+app.post('/personality', requireAuth, (req, res) => {
   try {
     const { personality } = req.body;
     
@@ -638,6 +815,9 @@ app.post('/personality', (req, res) => {
     }
     
     personalityText = personality;
+    
+    // Save to persistent storage
+    savePersonalityToFile();
     
     console.log(`Personality updated (${personality.length} chars)`);
     
@@ -654,7 +834,7 @@ app.post('/personality', (req, res) => {
 });
 
 // Upload personality file
-app.post('/personality/upload', upload.single('file'), async (req, res) => {
+app.post('/personality/upload', requireAuth, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
@@ -677,6 +857,9 @@ app.post('/personality/upload', upload.single('file'), async (req, res) => {
     
     personalityText = extractedText;
     
+    // Save to persistent storage
+    savePersonalityToFile();
+    
     // Clean up uploaded file
     fs.unlinkSync(filePath);
     
@@ -696,8 +879,11 @@ app.post('/personality/upload', upload.single('file'), async (req, res) => {
 });
 
 // Reset personality to default/environment
-app.delete('/personality', (req, res) => {
+app.delete('/personality', requireAuth, (req, res) => {
   personalityText = '';
+  
+  // Save to persistent storage
+  savePersonalityToFile();
   
   console.log('Personality reset to default/environment');
   
@@ -707,10 +893,20 @@ app.delete('/personality', (req, res) => {
   });
 });
 
+// Protected route for management dashboard
+app.get('/management.html', requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'management.html'));
+});
+
+// Serve login page (unprotected)
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(__dirname, 'login.html'));
+});
+
 // CHAT HISTORY MANAGEMENT
 
 // Get all chat logs
-app.get('/chat-logs', (req, res) => {
+app.get('/chat-logs', requireAuth, (req, res) => {
   const logs = Object.values(chatHistory).map(chat => ({
     phone: chat.phone,
     customerInfo: chat.customerInfo,
