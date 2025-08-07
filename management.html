@@ -92,6 +92,7 @@
             <button class="tab" onclick="showTab('chats')">💬 Chat Logs</button>
             <button class="tab" onclick="showTab('testing')">🧪 Testing</button>
             <button class="tab" onclick="showTab('stats')">📊 Statistics</button>
+            <button class="tab" onclick="showTab('admin')">🔐 Admin Settings</button>
         </div>
 
         <!-- Knowledge Base Section -->
@@ -207,6 +208,50 @@
                 <!-- Stats will be loaded here -->
             </div>
         </div>
+
+        <!-- Admin Settings Section -->
+        <div id="admin" class="section">
+            <h2>🔐 Admin Settings</h2>
+            
+            <div class="current-personality">
+                <h4>🔑 PIN Management</h4>
+                <div id="pinStatus" class="source">
+                    <!-- PIN status will be loaded here -->
+                </div>
+            </div>
+            
+            <div class="grid">
+                <div>
+                    <h3>🔄 Change Admin PIN</h3>
+                    <div class="form-group">
+                        <label>Current PIN</label>
+                        <input type="password" id="currentPin" placeholder="Enter current PIN" maxlength="20" autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                        <label>New PIN</label>
+                        <input type="password" id="newPin" placeholder="Enter new PIN (min 4 characters)" maxlength="20" autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                        <label>Confirm New PIN</label>
+                        <input type="password" id="confirmPin" placeholder="Confirm new PIN" maxlength="20" autocomplete="off">
+                    </div>
+                    <button class="btn btn-warning" onclick="changePIN()">🔐 Update PIN</button>
+                </div>
+                
+                <div>
+                    <div style="background: #fff3cd; border: 2px solid #ffeaa7; border-radius: 8px; padding: 20px;">
+                        <h4 style="color: #856404; margin-bottom: 15px;">⚠️ Important Security Notes</h4>
+                        <ul style="color: #856404; margin-left: 20px; line-height: 1.6;">
+                            <li>Choose a strong, unique PIN (at least 4 characters)</li>
+                            <li>Don't use common sequences (1234, 0000, etc.)</li>
+                            <li>PIN changes take effect immediately</li>
+                            <li>You'll need the new PIN for future logins</li>
+                            <li>PIN is stored securely and synchronized across deployments</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Edit Modal -->
@@ -303,6 +348,7 @@
             if (tabName === 'personality') loadPersonality();
             if (tabName === 'chats') loadChatLogs();
             if (tabName === 'stats') loadStats();
+            if (tabName === 'admin') loadAdminSettings();
         }
 
         // Drag and Drop Handlers
@@ -870,6 +916,70 @@
                 }
             };
         });
+
+        // Admin Settings Functions
+        async function loadAdminSettings() {
+            try {
+                const response = await fetch('/admin/pin');
+                const data = await response.json();
+                
+                const statusDiv = document.getElementById('pinStatus');
+                statusDiv.innerHTML = `
+                    Status: ${data.hasCustomPin ? 'Custom PIN set' : 'Using default PIN'} • 
+                    ${data.lastUpdated ? `Last updated: ${new Date(data.lastUpdated).toLocaleString()}` : 'Never updated'}
+                `;
+            } catch (error) {
+                showAlert('Failed to load admin settings: ' + error.message, 'error');
+            }
+        }
+
+        async function changePIN() {
+            const currentPin = document.getElementById('currentPin').value;
+            const newPin = document.getElementById('newPin').value;
+            const confirmPin = document.getElementById('confirmPin').value;
+            
+            if (!currentPin || !newPin || !confirmPin) {
+                showAlert('Please fill in all PIN fields', 'error');
+                return;
+            }
+            
+            if (newPin !== confirmPin) {
+                showAlert('New PIN and confirmation do not match', 'error');
+                return;
+            }
+            
+            if (newPin.length < 4) {
+                showAlert('New PIN must be at least 4 characters long', 'error');
+                return;
+            }
+            
+            if (newPin === currentPin) {
+                showAlert('New PIN must be different from current PIN', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/admin/pin', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ currentPin, newPin })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showAlert('PIN updated successfully! Use the new PIN for future logins.');
+                    document.getElementById('currentPin').value = '';
+                    document.getElementById('newPin').value = '';
+                    document.getElementById('confirmPin').value = '';
+                    loadAdminSettings();
+                } else {
+                    showAlert(result.error, 'error');
+                }
+            } catch (error) {
+                showAlert('Failed to update PIN: ' + error.message, 'error');
+            }
+        }
     </script>
 </body>
 </html>

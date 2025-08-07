@@ -15,7 +15,7 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 // Authentication configuration
-const ADMIN_PIN = process.env.ADMIN_PIN || '1234'; // Default PIN, should be changed in production
+let ADMIN_PIN = process.env.ADMIN_PIN || '1234'; // Default PIN, can be overridden from admin.json
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(64).toString('hex');
 
 // Session middleware
@@ -64,6 +64,7 @@ if (!fs.existsSync(dataDir)) {
 // File paths for persistent storage
 const KNOWLEDGE_FILE = path.join(dataDir, 'knowledge.json');
 const PERSONALITY_FILE = path.join(dataDir, 'personality.json');
+const ADMIN_FILE = path.join(dataDir, 'admin.json');
 
 // File system utilities for persistent storage
 function saveKnowledgeToFile() {
@@ -116,6 +117,33 @@ function loadPersonalityFromFile() {
   } catch (error) {
     console.error('Error loading personality:', error);
     personalityText = '';
+  }
+}
+
+// PIN management functions
+function savePinToFile() {
+  try {
+    const adminData = {
+      pin: ADMIN_PIN,
+      updatedAt: new Date().toISOString()
+    };
+    fs.writeFileSync(ADMIN_FILE, JSON.stringify(adminData, null, 2));
+    console.log('Admin PIN saved to file');
+  } catch (error) {
+    console.error('Error saving admin PIN:', error);
+  }
+}
+
+function loadPinFromFile() {
+  try {
+    if (fs.existsSync(ADMIN_FILE)) {
+      const data = fs.readFileSync(ADMIN_FILE, 'utf8');
+      const adminData = JSON.parse(data);
+      ADMIN_PIN = adminData.pin || ADMIN_PIN;
+      console.log('Loaded admin PIN from file');
+    }
+  } catch (error) {
+    console.error('Error loading admin PIN:', error);
   }
 }
 
@@ -184,6 +212,47 @@ app.post('/admin/logout', (req, res) => {
     });
   } else {
     res.json({ message: 'No active session' });
+  }
+});
+
+// PIN management routes
+app.get('/admin/pin', requireAuth, (req, res) => {
+  res.json({
+    hasCustomPin: fs.existsSync(ADMIN_FILE),
+    lastUpdated: fs.existsSync(ADMIN_FILE) ? 
+      JSON.parse(fs.readFileSync(ADMIN_FILE, 'utf8')).updatedAt : null
+  });
+});
+
+app.post('/admin/pin', requireAuth, (req, res) => {
+  try {
+    const { currentPin, newPin } = req.body;
+    
+    if (!currentPin || !newPin) {
+      return res.status(400).json({ error: 'Current PIN and new PIN are required' });
+    }
+    
+    if (currentPin !== ADMIN_PIN) {
+      return res.status(401).json({ error: 'Current PIN is incorrect' });
+    }
+    
+    if (newPin.length < 4) {
+      return res.status(400).json({ error: 'PIN must be at least 4 characters long' });
+    }
+    
+    // Update PIN
+    ADMIN_PIN = newPin;
+    savePinToFile();
+    
+    console.log(`Admin PIN changed at ${new Date().toISOString()}`);
+    
+    res.json({
+      message: 'PIN updated successfully',
+      updatedAt: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('PIN change error:', error);
+    res.status(500).json({ error: 'Failed to update PIN' });
   }
 });
 
@@ -487,6 +556,7 @@ let personalityText = '';
 // Load existing data on startup
 loadKnowledgeFromFile();
 loadPersonalityFromFile();
+loadPinFromFile();
 
 // Chat logging system
 const chatLogFile = path.join(__dirname, 'chat_logs.json');
