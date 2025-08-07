@@ -268,7 +268,8 @@ app.get('/', (req, res) => {
       health: '/health',
       customer: '/customer/:phone',
       sms_reply: 'POST /reply',
-      management: '/management.html'
+      management: '/management.html',
+      upload: '/upload.html'
     },
     status: 'OK'
   });
