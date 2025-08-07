@@ -437,11 +437,13 @@ class EnhancedSheetsService {
             const row = sheetData.data[rowIndex];
             
             // Check first few cells for phone number (adjust column index as needed)
-            for (let cellIndex = 0; cellIndex < Math.min(5, row.cells.length); cellIndex++) {
+            for (let cellIndex = 0; cellIndex < Math.min(10, row.cells.length); cellIndex++) {
                 const cell = row.cells[cellIndex];
                 if (cell && cell.value) {
                     const cellValue = String(cell.value).replace(/\D/g, '');
-                    if (cellValue.includes(cleanPhone) || cleanPhone.includes(cellValue)) {
+                    // Skip empty cleaned values and require minimum length for phone match
+                    if (cellValue.length >= 10 && cleanPhone.length >= 10 && 
+                        (cellValue.includes(cleanPhone) || cleanPhone.includes(cellValue))) {
                         return {
                             rowNumber: rowIndex + 1,
                             phoneNumber: phoneNumber,
