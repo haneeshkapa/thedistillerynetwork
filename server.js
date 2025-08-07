@@ -302,77 +302,41 @@ app.get('/admin/shopify/status', requireAuth, (req, res) => {
   res.json(status);
 });
 
-// Sync data from Shopify
+// Enhanced Shopify sync endpoint using automated function
 app.post('/admin/shopify/sync', requireAuth, async (req, res) => {
   try {
     if (!shopifyService.enabled) {
       return res.status(400).json({ error: 'Shopify integration not configured' });
     }
 
-    console.log('Starting Shopify sync...');
+    logger.info('Manual Shopify sync triggered via admin dashboard');
     
-    // Fetch all data in parallel
-    const [products, collections, shopInfo, pages, blogPosts] = await Promise.all([
-      shopifyService.getProducts(),
-      shopifyService.getCollections(), 
-      shopifyService.getShopInfo(),
-      shopifyService.getPages(),
-      shopifyService.getBlogPosts()
-    ]);
-
-    // Format for knowledge base
-    const knowledgeContent = shopifyService.formatForKnowledgeBase(
-      products, collections, shopInfo, pages, blogPosts
-    );
-
-    // Create knowledge entry
-    const timestamp = new Date().toISOString();
-    const knowledgeEntry = {
-      id: Date.now(),
-      fileName: `Shopify Store Data (${new Date().toLocaleDateString()})`,
-      fileType: '.shopify',
-      content: knowledgeContent,
-      uploadedAt: timestamp,
-      size: knowledgeContent.length,
-      source: 'shopify-sync',
-      metadata: {
-        productsCount: products.length,
-        collectionsCount: collections.length,
-        pagesCount: pages.length,
-        blogPostsCount: blogPosts.length,
-        shopName: shopInfo?.name || 'Unknown'
-      }
-    };
-
-    // Remove existing Shopify entries
-    knowledgeHistory = knowledgeHistory.filter(entry => entry.source !== 'shopify-sync');
+    // Use the enhanced sync function with retry logic
+    const result = await performAutomaticShopifySync('manual');
     
-    // Add new entry
-    knowledgeHistory.push(knowledgeEntry);
-    knowledgeBase = knowledgeHistory.map(k => `[${k.fileName}]\n${k.content}`).join('\n\n---\n\n');
+    if (result.success) {
+      res.json({
+        message: 'Shopify sync completed successfully',
+        data: result.data,
+        syncedAt: new Date().toISOString()
+      });
+    } else if (result.retrying) {
+      res.status(202).json({
+        message: 'Shopify sync failed but retrying...',
+        error: result.error,
+        nextAttemptIn: result.nextAttemptIn
+      });
+    } else {
+      res.status(500).json({
+        error: 'Shopify sync failed after all retries',
+        details: result.error
+      });
+    }
     
-    // Save to persistent storage
-    saveKnowledgeToFile();
-    
-    console.log(`✅ Shopify sync completed: ${products.length} products, ${collections.length} collections, ${pages.length} pages`);
-    
-    res.json({
-      message: 'Shopify sync completed successfully',
-      data: {
-        productsCount: products.length,
-        collectionsCount: collections.length,
-        pagesCount: pages.length,
-        blogPostsCount: blogPosts.length,
-        totalSize: knowledgeContent.length,
-        shopName: shopInfo?.name
-      },
-      syncedAt: timestamp
-    });
-
   } catch (error) {
-    console.error('Shopify sync error:', error);
+    logger.error('Manual Shopify sync endpoint error', { error: error.message });
     res.status(500).json({ 
-      error: 'Failed to sync Shopify data', 
+      error: 'Failed to initiate Shopify sync', 
       details: error.message 
     });
   }
@@ -1387,15 +1351,15 @@ app.get('/chat-logs/export/json', requireAuth, (req, res) => {
   res.json(chatHistory);
 });
 
-// Automatic Shopify sync function
-async function performAutomaticShopifySync() {
+// Enhanced automatic Shopify sync function with retry logic
+async function performAutomaticShopifySync(syncType = 'scheduled', retryCount = 0) {
   if (!shopifyService.enabled) {
-    console.log('Shopify sync skipped - not configured');
-    return;
+    logger.warn('Shopify sync skipped - service not configured', { syncType });
+    return { success: false, reason: 'not_configured' };
   }
   
   try {
-    console.log('🔄 Starting scheduled Shopify sync...');
+    logger.info(`Starting ${syncType} Shopify sync (attempt ${retryCount + 1})`, { syncType, retryCount });
     
     const [products, collections, shopInfo, pages, blogPosts] = await Promise.all([
       shopifyService.getProducts(),
@@ -1438,18 +1402,113 @@ async function performAutomaticShopifySync() {
     // Save to persistent storage
     saveKnowledgeToFile();
     
-    console.log(`✅ Automatic Shopify sync completed: ${products.length} products, ${collections.length} collections`);
+    logger.success(`${syncType} Shopify sync completed`, {
+      syncType,
+      productsCount: products.length,
+      collectionsCount: collections.length,
+      pagesCount: pages.length,
+      blogPostsCount: blogPosts.length,
+      totalSize: knowledgeContent.length
+    });
+    
+    return { success: true, data: knowledgeEntry.metadata };
     
   } catch (error) {
-    console.error('❌ Automatic Shopify sync failed:', error.message);
+    logger.error(`${syncType} Shopify sync failed (attempt ${retryCount + 1})`, {
+      syncType,
+      retryCount,
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+    
+    // Retry logic: up to 3 attempts with exponential backoff
+    const maxRetries = 3;
+    if (retryCount < maxRetries) {
+      const delay = Math.pow(2, retryCount) * 5000; // 5s, 10s, 20s
+      logger.warn(`Retrying ${syncType} Shopify sync in ${delay/1000}s`, { retryCount, delay });
+      
+      setTimeout(() => {
+        performAutomaticShopifySync(syncType, retryCount + 1);
+      }, delay);
+      
+      return { success: false, error: error.message, retrying: true, nextAttemptIn: delay };
+    }
+    
+    return { success: false, error: error.message, finalFailure: true };
   }
 }
 
-// Schedule automatic Shopify sync (daily at 6 AM)
+// Enhanced automated Shopify sync scheduling
 if (shopifyService.enabled) {
-  console.log('📅 Scheduling automatic Shopify sync for daily at 6:00 AM');
-  cron.schedule('0 6 * * *', performAutomaticShopifySync);
+  logger.info('Setting up automated Shopify sync schedules');
+  
+  // 1. Daily sync at 6 AM (existing)
+  cron.schedule('0 6 * * *', () => performAutomaticShopifySync('daily'));
+  
+  // 2. Every 4 hours during business hours (8 AM, 12 PM, 4 PM, 8 PM)
+  cron.schedule('0 8,12,16,20 * * *', () => performAutomaticShopifySync('periodic'));
+  
+  // 3. Startup sync with delay for server initialization
+  setTimeout(() => performAutomaticShopifySync('startup'), 10000);
+  
+  logger.success('Automated Shopify sync schedules configured', {
+    schedules: ['daily at 6:00 AM', 'every 4 hours (8,12,16,20)', 'on startup']
+  });
 }
+
+// Shopify Webhook Endpoint for Real-time Product Updates
+app.post('/webhook/shopify', express.raw({ type: 'application/json' }), (req, res) => {
+  try {
+    const hmac = req.get('X-Shopify-Hmac-Sha256');
+    const webhookSecret = process.env.SHOPIFY_WEBHOOK_SECRET;
+    
+    if (!webhookSecret) {
+      logger.warn('Shopify webhook received but no webhook secret configured');
+      return res.status(400).send('Webhook secret not configured');
+    }
+    
+    // Verify webhook authenticity
+    const crypto = require('crypto');
+    const calculatedHmac = crypto
+      .createHmac('sha256', webhookSecret)
+      .update(req.body)
+      .digest('base64');
+    
+    if (hmac !== calculatedHmac) {
+      logger.warn('Shopify webhook authentication failed', { 
+        receivedHmac: hmac?.substring(0, 10) + '...',
+        calculatedHmac: calculatedHmac?.substring(0, 10) + '...'
+      });
+      return res.status(401).send('Unauthorized');
+    }
+    
+    // Parse webhook data
+    const webhookData = JSON.parse(req.body);
+    const topic = req.get('X-Shopify-Topic');
+    
+    logger.info('Shopify webhook received', { topic, id: webhookData.id });
+    
+    // Trigger sync for relevant product/inventory changes
+    if (['products/create', 'products/update', 'inventory_levels/update'].includes(topic)) {
+      // Debounced sync to avoid too many rapid updates
+      clearTimeout(global.webhookSyncTimeout);
+      global.webhookSyncTimeout = setTimeout(() => {
+        performAutomaticShopifySync('webhook').then(result => {
+          logger.info('Webhook-triggered Shopify sync completed', result);
+        });
+      }, 30000); // Wait 30 seconds to batch multiple webhook updates
+    }
+    
+    res.status(200).send('OK');
+    
+  } catch (error) {
+    logger.error('Shopify webhook processing failed', { 
+      error: error.message,
+      headers: req.headers 
+    });
+    res.status(500).send('Internal Server Error');
+  }
+});
 
 // Logging Management API Endpoints
 app.get('/admin/logs', requireAuth, (req, res) => {
@@ -1506,14 +1565,8 @@ app.listen(port, async () => {
   await initializeGoogleSheets();
   await testClaudeAPI();
   
-  // Perform initial Shopify sync if enabled and no existing data
-  if (shopifyService.enabled) {
-    const existingShopifyData = knowledgeHistory.find(entry => entry.source === 'shopify-sync');
-    if (!existingShopifyData) {
-      console.log('🔄 No existing Shopify data found, performing initial sync...');
-      setTimeout(performAutomaticShopifySync, 5000); // Wait 5 seconds for server to fully start
-    }
-  }
+  // Initial startup complete - automated sync will handle Shopify data
+  logger.info('Server initialization complete - automated Shopify sync will handle data updates');
 });
 
 module.exports = app;
