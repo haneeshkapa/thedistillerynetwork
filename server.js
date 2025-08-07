@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const session = require('express-session');
 const crypto = require('crypto');
+const cron = require('node-cron');
 const { GoogleSpreadsheet } = require('google-spreadsheet');
 const Anthropic = require('@anthropic-ai/sdk');
 const multer = require('multer');
@@ -9,6 +10,8 @@ const pdfParse = require('pdf-parse');
 const XLSX = require('xlsx');
 const fs = require('fs');
 const path = require('path');
+const ShopifyService = require('./shopify-service');
+const EnhancedSheetsService = require('./enhanced-sheets-service');
 require('dotenv').config();
 
 const app = express();
@@ -256,6 +259,259 @@ app.post('/admin/pin', requireAuth, (req, res) => {
   }
 });
 
+// SHOPIFY INTEGRATION ENDPOINTS
+
+// Get Shopify sync status
+app.get('/admin/shopify/status', requireAuth, (req, res) => {
+  const status = shopifyService.getSyncStatus();
+  res.json(status);
+});
+
+// Sync data from Shopify
+app.post('/admin/shopify/sync', requireAuth, async (req, res) => {
+  try {
+    if (!shopifyService.enabled) {
+      return res.status(400).json({ error: 'Shopify integration not configured' });
+    }
+
+    console.log('Starting Shopify sync...');
+    
+    // Fetch all data in parallel
+    const [products, collections, shopInfo, pages, blogPosts] = await Promise.all([
+      shopifyService.getProducts(),
+      shopifyService.getCollections(), 
+      shopifyService.getShopInfo(),
+      shopifyService.getPages(),
+      shopifyService.getBlogPosts()
+    ]);
+
+    // Format for knowledge base
+    const knowledgeContent = shopifyService.formatForKnowledgeBase(
+      products, collections, shopInfo, pages, blogPosts
+    );
+
+    // Create knowledge entry
+    const timestamp = new Date().toISOString();
+    const knowledgeEntry = {
+      id: Date.now(),
+      fileName: `Shopify Store Data (${new Date().toLocaleDateString()})`,
+      fileType: '.shopify',
+      content: knowledgeContent,
+      uploadedAt: timestamp,
+      size: knowledgeContent.length,
+      source: 'shopify-sync',
+      metadata: {
+        productsCount: products.length,
+        collectionsCount: collections.length,
+        pagesCount: pages.length,
+        blogPostsCount: blogPosts.length,
+        shopName: shopInfo?.name || 'Unknown'
+      }
+    };
+
+    // Remove existing Shopify entries
+    knowledgeHistory = knowledgeHistory.filter(entry => entry.source !== 'shopify-sync');
+    
+    // Add new entry
+    knowledgeHistory.push(knowledgeEntry);
+    knowledgeBase = knowledgeHistory.map(k => `[${k.fileName}]\n${k.content}`).join('\n\n---\n\n');
+    
+    // Save to persistent storage
+    saveKnowledgeToFile();
+    
+    console.log(`✅ Shopify sync completed: ${products.length} products, ${collections.length} collections, ${pages.length} pages`);
+    
+    res.json({
+      message: 'Shopify sync completed successfully',
+      data: {
+        productsCount: products.length,
+        collectionsCount: collections.length,
+        pagesCount: pages.length,
+        blogPostsCount: blogPosts.length,
+        totalSize: knowledgeContent.length,
+        shopName: shopInfo?.name
+      },
+      syncedAt: timestamp
+    });
+
+  } catch (error) {
+    console.error('Shopify sync error:', error);
+    res.status(500).json({ 
+      error: 'Failed to sync Shopify data', 
+      details: error.message 
+    });
+  }
+});
+
+// Get order status (for customer inquiries)
+app.post('/admin/shopify/order', requireAuth, async (req, res) => {
+  try {
+    const { orderNumber } = req.body;
+    
+    if (!orderNumber) {
+      return res.status(400).json({ error: 'Order number is required' });
+    }
+    
+    const order = await shopifyService.getOrderByNumber(orderNumber);
+    
+    if (!order) {
+      return res.json({ found: false, message: 'Order not found' });
+    }
+    
+    res.json({ 
+      found: true, 
+      order: order 
+    });
+    
+  } catch (error) {
+    console.error('Order lookup error:', error);
+    res.status(500).json({ error: 'Failed to look up order' });
+  }
+});
+
+// ENHANCED GOOGLE SHEETS ENDPOINTS
+
+// Get sheets info with formatting capabilities
+app.get('/admin/sheets/info', requireAuth, async (req, res) => {
+  try {
+    if (!enhancedSheetsService.enabled) {
+      return res.status(400).json({ error: 'Enhanced Google Sheets service not configured' });
+    }
+
+    const sheetsInfo = await enhancedSheetsService.getSheetsInfo();
+    res.json(sheetsInfo);
+
+  } catch (error) {
+    console.error('Sheets info error:', error);
+    res.status(500).json({ error: 'Failed to get sheets information' });
+  }
+});
+
+// Get sheet data with formatting
+app.get('/admin/sheets/formatting/:sheetName?', requireAuth, async (req, res) => {
+  try {
+    if (!enhancedSheetsService.enabled) {
+      return res.status(400).json({ error: 'Enhanced Google Sheets service not configured' });
+    }
+
+    const sheetName = req.params.sheetName || null;
+    const sheetData = await enhancedSheetsService.getSheetWithFormatting(sheetName);
+    const summary = enhancedSheetsService.generateFormattingSummary(sheetData);
+
+    res.json({
+      sheetData: sheetData,
+      formattingSummary: summary,
+      status: 'success'
+    });
+
+  } catch (error) {
+    console.error('Sheet formatting error:', error);
+    res.status(500).json({ 
+      error: 'Failed to get sheet formatting', 
+      details: error.message 
+    });
+  }
+});
+
+// Get formatting summary only (lighter response)
+app.get('/admin/sheets/summary/:sheetName?', requireAuth, async (req, res) => {
+  try {
+    if (!enhancedSheetsService.enabled) {
+      return res.status(400).json({ error: 'Enhanced Google Sheets service not configured' });
+    }
+
+    const sheetName = req.params.sheetName || null;
+    const sheetData = await enhancedSheetsService.getSheetWithFormatting(sheetName);
+    const summary = enhancedSheetsService.generateFormattingSummary(sheetData);
+
+    res.json(summary);
+
+  } catch (error) {
+    console.error('Sheet summary error:', error);
+    res.status(500).json({ 
+      error: 'Failed to get sheet summary', 
+      details: error.message 
+    });
+  }
+});
+
+// Get enhanced sheets service status
+app.get('/admin/sheets/status', requireAuth, (req, res) => {
+  const status = enhancedSheetsService.getStatus();
+  res.json(status);
+});
+
+// Get sheet data with order status interpretation
+app.get('/admin/sheets/orders/:sheetName?', requireAuth, async (req, res) => {
+  try {
+    if (!enhancedSheetsService.enabled) {
+      return res.status(400).json({ error: 'Enhanced Google Sheets service not configured' });
+    }
+    const sheetName = req.params.sheetName || null;
+    const sheetData = await enhancedSheetsService.getSheetWithOrderStatus(sheetName);
+    const statusSummary = enhancedSheetsService.generateStatusSummary(sheetData);
+    res.json({
+      sheetData: sheetData,
+      statusSummary: statusSummary,
+      status: 'success'
+    });
+  } catch (error) {
+    console.error('Sheet orders error:', error);
+    res.status(500).json({ 
+      error: 'Failed to get sheet order status data', 
+      details: error.message 
+    });
+  }
+});
+
+// Get order status summary only
+app.get('/admin/sheets/status-summary/:sheetName?', requireAuth, async (req, res) => {
+  try {
+    if (!enhancedSheetsService.enabled) {
+      return res.status(400).json({ error: 'Enhanced Google Sheets service not configured' });
+    }
+    const sheetName = req.params.sheetName || null;
+    const sheetData = await enhancedSheetsService.getSheetWithOrderStatus(sheetName);
+    const statusSummary = enhancedSheetsService.generateStatusSummary(sheetData);
+    res.json(statusSummary);
+  } catch (error) {
+    console.error('Status summary error:', error);
+    res.status(500).json({ 
+      error: 'Failed to get status summary', 
+      details: error.message 
+    });
+  }
+});
+
+// Find customer order status by phone number
+app.post('/admin/sheets/customer-status', requireAuth, async (req, res) => {
+  try {
+    if (!enhancedSheetsService.enabled) {
+      return res.status(400).json({ error: 'Enhanced Google Sheets service not configured' });
+    }
+    const { phoneNumber, sheetName } = req.body;
+    if (!phoneNumber) {
+      return res.status(400).json({ error: 'Phone number is required' });
+    }
+    
+    const sheetData = await enhancedSheetsService.getSheetWithOrderStatus(sheetName || null);
+    const customerStatus = enhancedSheetsService.findCustomerStatus(sheetData, phoneNumber);
+    
+    res.json({
+      phoneNumber: phoneNumber,
+      customerStatus: customerStatus,
+      found: !!customerStatus,
+      status: 'success'
+    });
+  } catch (error) {
+    console.error('Customer status error:', error);
+    res.status(500).json({ 
+      error: 'Failed to find customer status', 
+      details: error.message 
+    });
+  }
+});
+
 // Initialize Anthropic client
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -277,6 +533,10 @@ async function testClaudeAPI() {
     if (error.error) console.error('Error details:', error.error);
   }
 }
+
+// Initialize services
+const shopifyService = new ShopifyService();
+const enhancedSheetsService = new EnhancedSheetsService();
 
 // Google Sheets setup
 const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID);
@@ -351,6 +611,8 @@ app.post('/reply', async (req, res) => {
     const conversationHistory = getConversationHistory(phone, 5); // Last 5 messages
     
     let prompt;
+    let customerStatusInfo = null;
+    
     if (customer) {
       // Map data based on your sheet structure
       const name = customer._rawData[2] || customer.shipping_name || 'N/A';
@@ -359,6 +621,19 @@ app.post('/reply', async (req, res) => {
       const email = customer._rawData[5] || 'N/A';
       const phone = customer._rawData[6] || 'N/A';
       const created = customer._rawData[3] || 'N/A';
+      
+      // Try to get enhanced status information using color-based detection
+      try {
+        if (enhancedSheetsService.enabled) {
+          const sheetData = await enhancedSheetsService.getSheetWithOrderStatus();
+          const customerStatus = enhancedSheetsService.findCustomerStatus(sheetData, phone);
+          if (customerStatus) {
+            customerStatusInfo = customerStatus;
+          }
+        }
+      } catch (statusError) {
+        console.error('Enhanced status lookup failed:', statusError.message);
+      }
       
       // Get personality and knowledge from environment and uploaded files
       const personality = personalityText || process.env.CLAUDE_PERSONALITY || "You are a helpful customer service representative";
@@ -378,6 +653,36 @@ app.post('/reply', async (req, res) => {
         historyContext += 'CURRENT MESSAGE:\n';
       }
       
+      // Enhanced status information for better customer service responses
+      let statusContext = '';
+      if (customerStatusInfo && customerStatusInfo.status) {
+        const status = customerStatusInfo.status;
+        statusContext = `\n\nORDER STATUS INFORMATION:
+- Current Status: ${status.label}
+- Priority Level: ${status.priority}
+- Recommended Action: ${status.action}
+- Status Color: ${customerStatusInfo.statusColor || 'N/A'}`;
+        
+        // Add specific guidance based on status
+        switch (status.status) {
+          case 'wants_cancel':
+            statusContext += '\n- IMPORTANT: Customer wants to cancel - handle with urgency and empathy';
+            break;
+          case 'important_antsy':
+            statusContext += '\n- IMPORTANT: Customer is anxious and calling frequently - provide reassurance and detailed updates';
+            break;
+          case 'call_for_update':
+            statusContext += '\n- NOTE: Customer needs an update - provide clear status information';
+            break;
+          case 'in_process':
+            statusContext += '\n- NOTE: Order is being processed - provide timeline if available';
+            break;
+          case 'shipped':
+            statusContext += '\n- NOTE: Order has shipped - provide tracking information if available';
+            break;
+        }
+      }
+
       prompt = `${personality}
 
 ${combinedKnowledge ? `COMPANY KNOWLEDGE:\n${combinedKnowledge}\n\n` : ""}Customer Information:
@@ -386,10 +691,10 @@ ${combinedKnowledge ? `COMPANY KNOWLEDGE:\n${combinedKnowledge}\n\n` : ""}Custom
 - Order ID: ${orderId}
 - Product: ${product}
 - Order Date: ${created}
-- Email: ${email}${historyContext}
+- Email: ${email}${statusContext}${historyContext}
 Customer has sent: "${message}"
 
-Respond in your natural style, keeping it concise like an SMS. Use the customer info, company knowledge, and conversation history to provide helpful, contextual assistance. Reference previous conversations when relevant.`;
+Respond in your natural style, keeping it concise like an SMS. Use the customer info, company knowledge, conversation history, and order status to provide helpful, contextual assistance. Pay special attention to the order status information above when crafting your response.`;
     } else {
       // Get personality and knowledge from environment and uploaded files
       const personality = personalityText || process.env.CLAUDE_PERSONALITY || "You are a helpful customer service representative";
@@ -466,7 +771,12 @@ I don't have their order information in our system. Respond in your natural styl
       customerInfo: customer ? {
         name: customer._rawData[2],
         orderId: customer._rawData[0],
-        product: customer._rawData[1]
+        product: customer._rawData[1],
+        enhancedStatus: customerStatusInfo ? {
+          status: customerStatusInfo.status,
+          statusColor: customerStatusInfo.statusColor,
+          rowNumber: customerStatusInfo.rowNumber
+        } : null
       } : null
     });
 
@@ -1033,12 +1343,85 @@ app.get('/chat-logs/export/json', (req, res) => {
   res.json(chatHistory);
 });
 
+// Automatic Shopify sync function
+async function performAutomaticShopifySync() {
+  if (!shopifyService.enabled) {
+    console.log('Shopify sync skipped - not configured');
+    return;
+  }
+  
+  try {
+    console.log('🔄 Starting scheduled Shopify sync...');
+    
+    const [products, collections, shopInfo, pages, blogPosts] = await Promise.all([
+      shopifyService.getProducts(),
+      shopifyService.getCollections(), 
+      shopifyService.getShopInfo(),
+      shopifyService.getPages(),
+      shopifyService.getBlogPosts()
+    ]);
+
+    const knowledgeContent = shopifyService.formatForKnowledgeBase(
+      products, collections, shopInfo, pages, blogPosts
+    );
+
+    const timestamp = new Date().toISOString();
+    const knowledgeEntry = {
+      id: Date.now(),
+      fileName: `Shopify Store Data (${new Date().toLocaleDateString()})`,
+      fileType: '.shopify',
+      content: knowledgeContent,
+      uploadedAt: timestamp,
+      size: knowledgeContent.length,
+      source: 'shopify-sync',
+      metadata: {
+        productsCount: products.length,
+        collectionsCount: collections.length,
+        pagesCount: pages.length,
+        blogPostsCount: blogPosts.length,
+        shopName: shopInfo?.name || 'Unknown',
+        syncType: 'automatic'
+      }
+    };
+
+    // Remove existing Shopify entries
+    knowledgeHistory = knowledgeHistory.filter(entry => entry.source !== 'shopify-sync');
+    
+    // Add new entry
+    knowledgeHistory.push(knowledgeEntry);
+    knowledgeBase = knowledgeHistory.map(k => `[${k.fileName}]\n${k.content}`).join('\n\n---\n\n');
+    
+    // Save to persistent storage
+    saveKnowledgeToFile();
+    
+    console.log(`✅ Automatic Shopify sync completed: ${products.length} products, ${collections.length} collections`);
+    
+  } catch (error) {
+    console.error('❌ Automatic Shopify sync failed:', error.message);
+  }
+}
+
+// Schedule automatic Shopify sync (daily at 6 AM)
+if (shopifyService.enabled) {
+  console.log('📅 Scheduling automatic Shopify sync for daily at 6:00 AM');
+  cron.schedule('0 6 * * *', performAutomaticShopifySync);
+}
+
 // Start server
 app.listen(port, async () => {
   console.log(`Server running on port ${port}`);
   loadChatLogs(); // Load existing chat logs
   await initializeGoogleSheets();
   await testClaudeAPI();
+  
+  // Perform initial Shopify sync if enabled and no existing data
+  if (shopifyService.enabled) {
+    const existingShopifyData = knowledgeHistory.find(entry => entry.source === 'shopify-sync');
+    if (!existingShopifyData) {
+      console.log('🔄 No existing Shopify data found, performing initial sync...');
+      setTimeout(performAutomaticShopifySync, 5000); // Wait 5 seconds for server to fully start
+    }
+  }
 });
 
 module.exports = app;

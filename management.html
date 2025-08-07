@@ -251,6 +251,82 @@
                     </div>
                 </div>
             </div>
+
+            <div class="current-personality" style="margin-top: 30px;">
+                <h4>🛍️ Shopify Integration</h4>
+                <div id="shopifyStatus" class="source">
+                    <!-- Shopify status will be loaded here -->
+                </div>
+            </div>
+            
+            <div class="grid">
+                <div>
+                    <h3>🔄 Sync Store Data</h3>
+                    <p style="margin-bottom: 15px; color: #666;">Automatically import your Shopify store data into the knowledge base:</p>
+                    <ul style="margin-bottom: 20px; margin-left: 20px; color: #666;">
+                        <li>Products and variants</li>
+                        <li>Collections and categories</li>
+                        <li>Store policies and pages</li>
+                        <li>Blog posts and articles</li>
+                    </ul>
+                    <button class="btn btn-primary" onclick="syncShopifyData()">🔄 Sync Shopify Data</button>
+                    <button class="btn btn-secondary" onclick="checkShopifyStatus()" style="margin-left: 10px;">📊 Check Status</button>
+                </div>
+                
+                <div>
+                    <h3>🔍 Order Lookup</h3>
+                    <p style="margin-bottom: 15px; color: #666;">Test order lookup for customer service:</p>
+                    <div class="form-group">
+                        <label>Order Number</label>
+                        <input type="text" id="orderNumber" placeholder="e.g., #1001 or 1001" maxlength="20">
+                    </div>
+                    <button class="btn btn-success" onclick="lookupOrder()">🔍 Lookup Order</button>
+                    <div id="orderResult" style="margin-top: 15px;">
+                        <!-- Order results will appear here -->
+                    </div>
+                </div>
+            </div>
+
+            <div class="current-personality" style="margin-top: 30px;">
+                <h4>📊 Google Sheets Formatting</h4>
+                <div id="sheetsStatus" class="source">
+                    <!-- Sheets status will be loaded here -->
+                </div>
+            </div>
+            
+            <div class="grid">
+                <div>
+                    <h3>🎨 View Sheet Formatting</h3>
+                    <p style="margin-bottom: 15px; color: #666;">Analyze visual formatting of your Google Sheets:</p>
+                    <div class="form-group">
+                        <label>Sheet Name (optional)</label>
+                        <input type="text" id="sheetName" placeholder="Leave empty for first sheet">
+                    </div>
+                    <button class="btn btn-primary" onclick="viewSheetFormatting()">🎨 View Formatting</button>
+                    <button class="btn btn-secondary" onclick="viewSheetSummary()" style="margin-left: 10px;">📋 Quick Summary</button>
+                </div>
+                
+                <div>
+                    <h3>📄 Sheet Information</h3>
+                    <button class="btn btn-success" onclick="viewSheetsInfo()">📊 View All Sheets</button>
+                    <button class="btn btn-secondary" onclick="checkSheetsStatus()" style="margin-left: 10px;">🔍 Check Status</button>
+                </div>
+                
+                <div>
+                    <h3>🎯 Order Status Analysis</h3>
+                    <p style="margin-bottom: 15px; color: #666;">Analyze order status based on cell colors:</p>
+                    <div class="form-group">
+                        <label>Sheet Name (optional)</label>
+                        <input type="text" id="orderSheetName" placeholder="Leave empty for first sheet">
+                    </div>
+                    <button class="btn btn-warning" onclick="viewOrderStatus()">🎯 View Order Status</button>
+                    <button class="btn btn-secondary" onclick="showColorLegend()" style="margin-left: 10px;">🌈 Color Legend</button>
+                </div>
+            </div>
+
+            <div id="sheetsResult" style="margin-top: 20px;">
+                <!-- Sheets results will appear here -->
+            </div>
         </div>
     </div>
 
@@ -928,6 +1004,12 @@
                     Status: ${data.hasCustomPin ? 'Custom PIN set' : 'Using default PIN'} • 
                     ${data.lastUpdated ? `Last updated: ${new Date(data.lastUpdated).toLocaleString()}` : 'Never updated'}
                 `;
+                
+                // Load Shopify status
+                checkShopifyStatus();
+                
+                // Load Sheets status
+                checkSheetsStatus();
             } catch (error) {
                 showAlert('Failed to load admin settings: ' + error.message, 'error');
             }
@@ -979,6 +1061,434 @@
             } catch (error) {
                 showAlert('Failed to update PIN: ' + error.message, 'error');
             }
+        }
+
+        // Shopify Integration Functions
+        async function checkShopifyStatus() {
+            try {
+                const response = await fetch('/admin/shopify/status');
+                const data = await response.json();
+                
+                const statusDiv = document.getElementById('shopifyStatus');
+                statusDiv.innerHTML = `
+                    Status: ${data.enabled ? '✅ Enabled' : '❌ Not configured'} • 
+                    Store: ${data.storeDomain} • 
+                    ${data.configured ? 'API credentials configured' : 'Missing API credentials'}
+                `;
+            } catch (error) {
+                const statusDiv = document.getElementById('shopifyStatus');
+                statusDiv.innerHTML = 'Status: ❌ Error loading status';
+                console.error('Shopify status error:', error);
+            }
+        }
+
+        async function syncShopifyData() {
+            try {
+                showAlert('🔄 Starting Shopify sync... This may take a moment.', 'info');
+                
+                const response = await fetch('/admin/shopify/sync', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showAlert(`✅ Shopify sync completed! Imported ${result.data.productsCount} products, ${result.data.collectionsCount} collections, ${result.data.pagesCount} pages, ${result.data.blogPostsCount} blog posts.`);
+                    
+                    // Refresh knowledge base
+                    if (document.getElementById('knowledge').classList.contains('active')) {
+                        loadKnowledge();
+                    }
+                } else {
+                    showAlert('❌ ' + result.error, 'error');
+                }
+            } catch (error) {
+                showAlert('Failed to sync Shopify data: ' + error.message, 'error');
+            }
+        }
+
+        async function lookupOrder() {
+            const orderNumber = document.getElementById('orderNumber').value.trim();
+            const resultDiv = document.getElementById('orderResult');
+            
+            if (!orderNumber) {
+                showAlert('Please enter an order number', 'error');
+                return;
+            }
+            
+            try {
+                resultDiv.innerHTML = '<div class="alert alert-info">🔍 Looking up order...</div>';
+                
+                const response = await fetch('/admin/shopify/order', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ orderNumber: orderNumber })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok && result.found) {
+                    const order = result.order;
+                    resultDiv.innerHTML = `
+                        <div class="alert alert-success">
+                            <h4>✅ Order Found: ${order.name}</h4>
+                            <p><strong>Customer:</strong> ${order.email}</p>
+                            <p><strong>Total:</strong> ${order.currency} $${order.totalPrice}</p>
+                            <p><strong>Status:</strong> ${order.financialStatus} / ${order.fulfillmentStatus}</p>
+                            <p><strong>Date:</strong> ${new Date(order.createdAt).toLocaleDateString()}</p>
+                            ${order.trackingInfo.length > 0 ? 
+                                `<p><strong>Tracking:</strong> ${order.trackingInfo.map(t => t.trackingNumber).join(', ')}</p>` 
+                                : ''
+                            }
+                        </div>
+                    `;
+                } else if (response.ok && !result.found) {
+                    resultDiv.innerHTML = '<div class="alert alert-info">❌ Order not found</div>';
+                } else {
+                    resultDiv.innerHTML = `<div class="alert alert-error">❌ ${result.error}</div>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="alert alert-error">❌ Error: ${error.message}</div>`;
+            }
+        }
+
+        // Google Sheets Formatting Functions
+        async function checkSheetsStatus() {
+            try {
+                const response = await fetch('/admin/sheets/status');
+                const data = await response.json();
+                
+                const statusDiv = document.getElementById('sheetsStatus');
+                statusDiv.innerHTML = `
+                    Status: ${data.enabled ? '✅ Enabled' : '❌ Not configured'} • 
+                    ${data.configured ? 'API credentials configured' : 'Missing API credentials'} • 
+                    Sheet ID: ${data.spreadsheetId}
+                `;
+            } catch (error) {
+                const statusDiv = document.getElementById('sheetsStatus');
+                statusDiv.innerHTML = 'Status: ❌ Error loading status';
+                console.error('Sheets status error:', error);
+            }
+        }
+
+        async function viewSheetsInfo() {
+            const resultDiv = document.getElementById('sheetsResult');
+            
+            try {
+                resultDiv.innerHTML = '<div class="alert alert-info">📊 Loading sheets information...</div>';
+                
+                const response = await fetch('/admin/sheets/info');
+                const data = await response.json();
+                
+                if (response.ok) {
+                    let html = `
+                        <div class="alert alert-success">
+                            <h4>📊 Spreadsheet: ${data.title}</h4>
+                            <p><strong>Locale:</strong> ${data.locale} • <strong>Timezone:</strong> ${data.timeZone}</p>
+                            <p><strong>Total Sheets:</strong> ${data.sheets.length}</p>
+                        </div>
+                        <div style="margin-top: 15px;">
+                            <h4>📋 Sheet Tabs:</h4>
+                    `;
+                    
+                    data.sheets.forEach(sheet => {
+                        const tabColor = sheet.tabColor ? `style="color: ${sheet.tabColor};"` : '';
+                        html += `
+                            <div class="knowledge-item" style="margin: 10px 0; padding: 10px;">
+                                <h5 ${tabColor}>📄 ${sheet.title}</h5>
+                                <div class="meta">
+                                    Sheet ID: ${sheet.sheetId} • Index: ${sheet.index} • 
+                                    ${sheet.gridProperties ? `${sheet.gridProperties.rowCount}×${sheet.gridProperties.columnCount} cells` : 'Size unknown'}
+                                    ${sheet.tabColor ? ` • Tab Color: <span style="color: ${sheet.tabColor};">${sheet.tabColor}</span>` : ''}
+                                    ${sheet.hidden ? ' • Hidden' : ''}
+                                </div>
+                            </div>
+                        `;
+                    });
+                    
+                    html += '</div>';
+                    resultDiv.innerHTML = html;
+                } else {
+                    resultDiv.innerHTML = `<div class="alert alert-error">❌ ${data.error}</div>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="alert alert-error">❌ Error: ${error.message}</div>`;
+            }
+        }
+
+        async function viewSheetSummary() {
+            const sheetName = document.getElementById('sheetName').value.trim() || null;
+            const resultDiv = document.getElementById('sheetsResult');
+            
+            try {
+                resultDiv.innerHTML = '<div class="alert alert-info">📋 Loading formatting summary...</div>';
+                
+                const url = sheetName ? `/admin/sheets/summary/${encodeURIComponent(sheetName)}` : '/admin/sheets/summary';
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    const colorPalette = [...data.colors.backgrounds, ...data.colors.texts].filter(Boolean);
+                    
+                    let html = `
+                        <div class="alert alert-success">
+                            <h4>📋 Formatting Summary: ${data.sheetTitle}</h4>
+                            ${data.tabColor ? `<p><strong>Tab Color:</strong> <span style="color: ${data.tabColor};">█</span> ${data.tabColor}</p>` : ''}
+                            <p><strong>Cells:</strong> ${data.totalCells} total, ${data.formattedCells} formatted (${Math.round(data.formattedCells/data.totalCells*100)}%)</p>
+                            <p><strong>Formatting:</strong> ${data.formatting.bold} bold, ${data.formatting.italic} italic, ${data.formatting.underline} underlined, ${data.formatting.borders} with borders</p>
+                        </div>
+                    `;
+                    
+                    if (colorPalette.length > 0) {
+                        html += `
+                            <div style="margin: 15px 0; padding: 15px; background: #f8f9fa; border-radius: 5px;">
+                                <h5>🎨 Color Palette:</h5>
+                                <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px;">
+                        `;
+                        
+                        colorPalette.forEach(color => {
+                            html += `
+                                <div style="display: flex; align-items: center; gap: 5px;">
+                                    <div style="width: 20px; height: 20px; background: ${color}; border: 1px solid #ccc; border-radius: 3px;"></div>
+                                    <span style="font-size: 12px; font-family: monospace;">${color}</span>
+                                </div>
+                            `;
+                        });
+                        
+                        html += '</div></div>';
+                    }
+                    
+                    if (data.fonts.length > 0) {
+                        html += `
+                            <div style="margin: 15px 0; padding: 15px; background: #f8f9fa; border-radius: 5px;">
+                                <h5>📝 Fonts Used:</h5>
+                                <p style="margin-top: 10px;">${data.fonts.join(', ')}</p>
+                            </div>
+                        `;
+                    }
+                    
+                    resultDiv.innerHTML = html;
+                } else {
+                    resultDiv.innerHTML = `<div class="alert alert-error">❌ ${data.error}</div>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="alert alert-error">❌ Error: ${error.message}</div>`;
+            }
+        }
+
+        async function viewSheetFormatting() {
+            const sheetName = document.getElementById('sheetName').value.trim() || null;
+            const resultDiv = document.getElementById('sheetsResult');
+            
+            try {
+                resultDiv.innerHTML = '<div class="alert alert-info">🎨 Loading detailed formatting data... This may take a moment.</div>';
+                
+                const url = sheetName ? `/admin/sheets/formatting/${encodeURIComponent(sheetName)}` : '/admin/sheets/formatting';
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    const summary = data.formattingSummary;
+                    const sheetData = data.sheetData;
+                    
+                    let html = `
+                        <div class="alert alert-success">
+                            <h4>🎨 Complete Formatting Analysis: ${summary.sheetTitle}</h4>
+                            <p><strong>Total Rows:</strong> ${summary.totalRows} • <strong>Total Cells:</strong> ${summary.totalCells}</p>
+                            <p><strong>Formatted Cells:</strong> ${summary.formattedCells} (${Math.round(summary.formattedCells/summary.totalCells*100)}%)</p>
+                        </div>
+                    `;
+                    
+                    // Show first few rows with formatting visualization
+                    if (sheetData.data.length > 0) {
+                        html += `
+                            <div style="margin: 15px 0;">
+                                <h5>📊 Sheet Preview (first 10 rows):</h5>
+                                <div style="overflow-x: auto; margin-top: 10px;">
+                                    <table style="border-collapse: collapse; width: 100%; font-size: 12px;">
+                        `;
+                        
+                        // Show first 10 rows
+                        sheetData.data.slice(0, 10).forEach((row, rowIndex) => {
+                            html += '<tr>';
+                            
+                            // Show first 10 columns
+                            const maxCols = Math.max(8, Math.min(10, row.cells.length));
+                            for (let colIndex = 0; colIndex < maxCols; colIndex++) {
+                                const cell = row.cells[colIndex];
+                                let cellStyle = 'border: 1px solid #ddd; padding: 4px; max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
+                                
+                                if (cell && cell.formatting) {
+                                    const f = cell.formatting;
+                                    if (f.backgroundColor) cellStyle += ` background-color: ${f.backgroundColor};`;
+                                    if (f.textColor) cellStyle += ` color: ${f.textColor};`;
+                                    if (f.bold) cellStyle += ' font-weight: bold;';
+                                    if (f.italic) cellStyle += ' font-style: italic;';
+                                    if (f.underline) cellStyle += ' text-decoration: underline;';
+                                }
+                                
+                                const cellValue = cell ? String(cell.value).substring(0, 50) : '';
+                                html += `<td style="${cellStyle}" title="${cellValue}">${cellValue || '&nbsp;'}</td>`;
+                            }
+                            
+                            html += '</tr>';
+                        });
+                        
+                        html += '</table></div></div>';
+                    }
+                    
+                    resultDiv.innerHTML = html;
+                } else {
+                    resultDiv.innerHTML = `<div class="alert alert-error">❌ ${data.error}</div>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="alert alert-error">❌ Error: ${error.message}</div>`;
+            }
+        }
+
+        async function viewOrderStatus() {
+            const resultDiv = document.getElementById('sheetsResult');
+            const sheetName = document.getElementById('orderSheetName').value.trim();
+            const urlPath = sheetName ? `/admin/sheets/orders/${encodeURIComponent(sheetName)}` : '/admin/sheets/orders';
+            
+            try {
+                resultDiv.innerHTML = '<div class="alert alert-info">🎯 Loading order status analysis...</div>';
+                
+                const response = await fetch(urlPath);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    const statusSummary = data.statusSummary;
+                    let html = `
+                        <div class="alert alert-success">
+                            <h4>🎯 Order Status Analysis: ${statusSummary.sheetTitle}</h4>
+                            <p><strong>Total Orders:</strong> ${statusSummary.totalRows}</p>
+                        </div>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0;">
+                            <div class="stat-card" style="background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);">
+                                <h3>${statusSummary.urgentCount}</h3>
+                                <p>Urgent Orders</p>
+                            </div>
+                            <div class="stat-card" style="background: linear-gradient(135deg, #f39c12 0%, #d68910 100%);">
+                                <h3>${statusSummary.activeCount}</h3>
+                                <p>Active Orders</p>
+                            </div>
+                            <div class="stat-card" style="background: linear-gradient(135deg, #27ae60 0%, #229954 100%);">
+                                <h3>${statusSummary.completedCount}</h3>
+                                <p>Shipped Orders</p>
+                            </div>
+                        </div>
+                        <div style="margin-top: 20px;">
+                            <h4>📊 Status Breakdown:</h4>
+                    `;
+                    
+                    Object.entries(statusSummary.statusBreakdown).forEach(([status, details]) => {
+                        if (details.count > 0) {
+                            let statusColor = '#95a5a6';
+                            let priorityIcon = '⚪';
+                            
+                            switch (details.priority) {
+                                case 'high': statusColor = '#e74c3c'; priorityIcon = '🔴'; break;
+                                case 'medium': statusColor = '#3498db'; priorityIcon = '🔵'; break;
+                                case 'normal': statusColor = '#f39c12'; priorityIcon = '🟡'; break;
+                                case 'low': statusColor = '#27ae60'; priorityIcon = '🟢'; break;
+                            }
+                            
+                            html += `
+                                <div class="knowledge-item" style="border-left: 4px solid ${statusColor};">
+                                    <h5>${priorityIcon} ${details.label}</h5>
+                                    <div class="meta">
+                                        Count: ${details.count} • Priority: ${details.priority} • Action: ${details.action}
+                                        <br>Rows: ${details.rows.join(', ')}
+                                    </div>
+                                </div>
+                            `;
+                        }
+                    });
+                    
+                    html += '</div>';
+                    resultDiv.innerHTML = html;
+                } else {
+                    resultDiv.innerHTML = `<div class="alert alert-error">❌ ${data.error}</div>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="alert alert-error">❌ Error: ${error.message}</div>`;
+            }
+        }
+
+        function showColorLegend() {
+            const resultDiv = document.getElementById('sheetsResult');
+            
+            const colorMapping = {
+                '#ffffff': { status: 'new_order', label: 'Order Received', priority: 'normal', action: 'none', description: 'New order just received' },
+                '#add8e6': { status: 'call_for_update', label: 'Call for Update', priority: 'medium', action: 'call', description: 'Customer needs status update' },
+                '#ff0000': { status: 'wants_cancel', label: 'Wants to Cancel', priority: 'high', action: 'urgent', description: 'Customer wants to cancel order' },
+                '#da70d6': { status: 'important_antsy', label: 'Important & Antsy', priority: 'high', action: 'immediate', description: 'Customer is anxious and calling frequently' },
+                '#ffff00': { status: 'in_process', label: 'In Process', priority: 'normal', action: 'update', description: 'Order is being processed' },
+                '#ffa500': { status: 'in_process', label: 'In Process', priority: 'normal', action: 'update', description: 'Order is being processed (orange variant)' },
+                '#00ff00': { status: 'shipped', label: 'Shipped', priority: 'low', action: 'tracking', description: 'Order has been shipped' }
+            };
+
+            let html = `
+                <div class="alert alert-info">
+                    <h4>🌈 Color Legend for Order Status</h4>
+                    <p>This legend shows how cell background colors in your Google Sheet are interpreted for order status:</p>
+                </div>
+                <div style="margin-top: 20px;">
+            `;
+            
+            Object.entries(colorMapping).forEach(([color, details]) => {
+                let priorityIcon = '⚪';
+                let priorityClass = '';
+                
+                switch (details.priority) {
+                    case 'high': 
+                        priorityIcon = '🔴'; 
+                        priorityClass = 'style="border-left: 4px solid #e74c3c;"';
+                        break;
+                    case 'medium': 
+                        priorityIcon = '🔵'; 
+                        priorityClass = 'style="border-left: 4px solid #3498db;"';
+                        break;
+                    case 'normal': 
+                        priorityIcon = '🟡'; 
+                        priorityClass = 'style="border-left: 4px solid #f39c12;"';
+                        break;
+                    case 'low': 
+                        priorityIcon = '🟢'; 
+                        priorityClass = 'style="border-left: 4px solid #27ae60;"';
+                        break;
+                }
+                
+                html += `
+                    <div class="knowledge-item" ${priorityClass}>
+                        <h5>
+                            <span style="display: inline-block; width: 20px; height: 20px; background-color: ${color}; border: 1px solid #ccc; margin-right: 10px; vertical-align: middle;"></span>
+                            ${priorityIcon} ${details.label}
+                        </h5>
+                        <div class="meta">
+                            Color: ${color} • Priority: ${details.priority} • Action: ${details.action}
+                            <br>${details.description}
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += `
+                </div>
+                <div class="alert alert-info" style="margin-top: 20px;">
+                    <h5>💡 How it works:</h5>
+                    <ul style="margin-left: 20px; margin-top: 10px;">
+                        <li>The system automatically detects background colors in your Google Sheet cells</li>
+                        <li>When customers text, the bot looks up their phone number and checks the row color</li>
+                        <li>Based on the color, the bot adjusts its response tone and provides appropriate information</li>
+                        <li>High priority colors (red, purple) trigger more urgent and empathetic responses</li>
+                    </ul>
+                </div>
+            `;
+            
+            resultDiv.innerHTML = html;
         }
     </script>
 </body>

@@ -6,5 +6,22 @@
     "content": "Test knowledge entry",
     "uploadedAt": "2025-08-07T15:30:53.786Z",
     "size": 20
+  },
+  {
+    "id": 1754583858262,
+    "fileName": "Shopify Store Data (8/7/2025)",
+    "fileType": ".shopify",
+    "content": "",
+    "uploadedAt": "2025-08-07T16:24:18.262Z",
+    "size": 0,
+    "source": "shopify-sync",
+    "metadata": {
+      "productsCount": 0,
+      "collectionsCount": 0,
+      "pagesCount": 0,
+      "blogPostsCount": 0,
+      "shopName": "Unknown",
+      "syncType": "automatic"
+    }
   }
 ]
