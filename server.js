@@ -55,7 +55,13 @@ app.use((req, res, next) => {
 // Custom static file serving with authentication for management.html
 app.use((req, res, next) => {
   if (req.path === '/management.html') {
-    return requireAuth(req, res, next);
+    // Check if user is authenticated
+    if (req.session && req.session.authenticated) {
+      return next();
+    } else {
+      // Redirect to login page instead of returning JSON error
+      return res.redirect('/login.html');
+    }
   }
   next();
 });
@@ -842,17 +848,12 @@ I don't have their order information in our system. Respond in your natural styl
 
 // Root endpoint
 app.get('/', (req, res) => {
-  res.json({ 
-    message: 'Claude SMS Bot is running!',
-    endpoints: {
-      health: '/health',
-      customer: '/customer/:phone',
-      sms_reply: 'POST /reply',
-      management: '/management.html',
-      upload: '/upload.html'
-    },
-    status: 'OK'
-  });
+  // Redirect to appropriate page based on authentication
+  if (req.session && req.session.authenticated) {
+    res.redirect('/management.html');
+  } else {
+    res.redirect('/login.html');
+  }
 });
 
 // Explicit route for management dashboard
