@@ -1,0 +1,27 @@
+{
+  "6039976785": {
+    "phone": "6039976785",
+    "customerInfo": {
+      "name": "jonathan zajac",
+      "orderId": "#2168",
+      "product": "test"
+    },
+    "messages": [
+      {
+        "timestamp": "2025-08-07T04:07:49.719Z",
+        "customerMessage": "Hi, I need help with my order",
+        "botResponse": "Hi Jonathan! I'll be happy to help you with your order #2168 from yesterday. Could you let me know what specific assistance you need with your test product? I'm here to help!",
+        "customerFound": true
+      },
+      {
+        "timestamp": "2025-08-07T04:07:58.402Z",
+        "customerMessage": "When will it ship?",
+        "botResponse": "Hi Jonathan! Your order #2168 is still processing since it was just placed yesterday. I'll check the shipping timeline for your test product - just give me a moment. While I don't have exact shipping dates in front of me, most orders ship within 1-2 business days. I'll be happy to look into more specific details if you need them!",
+        "customerFound": true
+      }
+    ],
+    "firstContact": "2025-08-07T04:07:49.719Z",
+    "lastContact": "2025-08-07T04:07:58.403Z",
+    "totalMessages": 2
+  }
+}
