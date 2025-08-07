@@ -1313,7 +1313,7 @@ app.get('/chat-logs', requireAuth, (req, res) => {
 });
 
 // Get detailed conversation for specific customer
-app.get('/chat-logs/:phone', (req, res) => {
+app.get('/chat-logs/:phone', requireAuth, (req, res) => {
   const phone = req.params.phone;
   const chat = chatHistory[phone];
   
@@ -1325,7 +1325,7 @@ app.get('/chat-logs/:phone', (req, res) => {
 });
 
 // Delete conversation history for specific customer
-app.delete('/chat-logs/:phone', (req, res) => {
+app.delete('/chat-logs/:phone', requireAuth, (req, res) => {
   const phone = req.params.phone;
   
   if (!chatHistory[phone]) {
@@ -1339,7 +1339,7 @@ app.delete('/chat-logs/:phone', (req, res) => {
 });
 
 // Clear all chat logs
-app.delete('/chat-logs', (req, res) => {
+app.delete('/chat-logs', requireAuth, (req, res) => {
   chatHistory = {};
   saveChatLogs();
   
@@ -1347,7 +1347,7 @@ app.delete('/chat-logs', (req, res) => {
 });
 
 // Export chat logs as JSON
-app.get('/chat-logs/export/json', (req, res) => {
+app.get('/chat-logs/export/json', requireAuth, (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Content-Disposition', 'attachment; filename=chat_logs_export.json');
   res.json(chatHistory);
