@@ -279,6 +279,11 @@ app.get('/management.html', (req, res) => {
   res.sendFile(path.join(__dirname, 'management.html'));
 });
 
+// Explicit route for upload page
+app.get('/upload.html', (req, res) => {
+  res.sendFile(path.join(__dirname, 'upload.html'));
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', message: 'Claude SMS Bot is running' });

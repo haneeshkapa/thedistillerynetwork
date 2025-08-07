@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SMS Bot Knowledge Upload</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
+        .upload-area { border: 2px dashed #ccc; padding: 40px; text-align: center; border-radius: 10px; margin: 20px 0; }
+        .upload-area:hover { border-color: #007bff; background: #f8f9fa; }
+        button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .result { margin: 20px 0; padding: 15px; border-radius: 5px; }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .preview { background: #f8f9fa; padding: 15px; border-left: 4px solid #007bff; margin: 10px 0; font-family: monospace; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <h1>📚 SMS Bot Knowledge Base Upload</h1>
+    <p>Upload PDF, Excel, or text files to enhance your Claude SMS bot's knowledge.</p>
+    
+    <form id="uploadForm" enctype="multipart/form-data">
+        <div class="upload-area">
+            <h3>📄 Select Knowledge File</h3>
+            <input type="file" id="file" name="file" accept=".pdf,.xlsx,.xls,.csv,.txt" required style="margin: 20px 0;">
+            <br>
+            <button type="submit">🚀 Upload Knowledge</button>
+        </div>
+    </form>
+
+    <div id="result"></div>
+    <div id="currentKnowledge"></div>
+
+    <script>
+        // Load current knowledge on page load
+        fetch('/knowledge')
+            .then(response => response.json())
+            .then(data => {
+                if (data.hasKnowledge) {
+                    document.getElementById('currentKnowledge').innerHTML = 
+                        '<h3>📖 Current Knowledge Base</h3>' +
+                        '<p><strong>Size:</strong> ' + data.size + ' characters</p>' +
+                        '<div class="preview">' + data.preview + '</div>';
+                }
+            });
+
+        document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const fileInput = document.getElementById('file');
+            const resultDiv = document.getElementById('result');
+            
+            if (!fileInput.files[0]) {
+                resultDiv.innerHTML = '<div class="result error">Please select a file!</div>';
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            resultDiv.innerHTML = '<div class="result">⏳ Processing file...</div>';
+
+            try {
+                const response = await fetch('/upload-knowledge', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    resultDiv.innerHTML = 
+                        '<div class="result success">' +
+                        '<h4>✅ Success!</h4>' +
+                        '<p><strong>File:</strong> ' + data.fileName + '</p>' +
+                        '<p><strong>Size:</strong> ' + data.size + ' characters</p>' +
+                        '<h5>Preview:</h5>' +
+                        '<div class="preview">' + data.preview + '</div>' +
+                        '</div>';
+
+                    // Refresh current knowledge display
+                    location.reload();
+                } else {
+                    resultDiv.innerHTML = '<div class="result error">❌ Error: ' + data.error + '</div>';
+                }
+            } catch (error) {
+                resultDiv.innerHTML = '<div class="result error">❌ Network error: ' + error.message + '</div>';
+            }
+        });
+    </script>
+</body>
+</html>
