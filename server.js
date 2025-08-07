@@ -1298,12 +1298,12 @@ app.get('/admin', (req, res) => {
 // Get all chat logs
 app.get('/chat-logs', requireAuth, (req, res) => {
   const logs = Object.values(chatHistory).map(chat => ({
-    phone: chat.phone,
-    customerInfo: chat.customerInfo,
-    firstContact: chat.firstContact,
-    lastContact: chat.lastContact,
-    totalMessages: chat.totalMessages,
-    recentMessage: chat.messages.length > 0 ? chat.messages[chat.messages.length - 1] : null
+    phone: chat.phone || 'Unknown',
+    customerInfo: chat.customerInfo || null,
+    firstContact: chat.firstContact || (chat.messages && chat.messages.length > 0 ? chat.messages[0].timestamp : new Date().toISOString()),
+    lastContact: chat.lastContact || (chat.messages && chat.messages.length > 0 ? chat.messages[chat.messages.length - 1].timestamp : new Date().toISOString()),
+    totalMessages: chat.totalMessages || (chat.messages ? chat.messages.length : 0),
+    recentMessage: chat.messages && chat.messages.length > 0 ? chat.messages[chat.messages.length - 1] : null
   })).sort((a, b) => new Date(b.lastContact) - new Date(a.lastContact));
   
   res.json({

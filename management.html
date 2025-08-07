@@ -823,17 +823,21 @@
                 const data = await response.json();
                 
                 const list = document.getElementById('chatLogsList');
-                if (data.totalCustomers === 0) {
+                
+                if (!data || !data.logs || data.totalCustomers === 0) {
                     list.innerHTML = '<div class="alert alert-info">No chat logs found yet. Start chatting with customers!</div>';
                     return;
                 }
                 
                 list.innerHTML = `<h3>📱 Customer Conversations (${data.totalCustomers})</h3>`;
                 
-                data.logs.forEach(log => {
-                    const customerName = log.customerInfo ? log.customerInfo.name : 'Unknown Customer';
-                    const orderId = log.customerInfo ? log.customerInfo.orderId : 'N/A';
-                    const lastMessage = log.recentMessage ? log.recentMessage.customerMessage.substring(0, 100) + '...' : 'No messages';
+                (data.logs || []).forEach(log => {
+                    if (!log) return;
+                    
+                    const customerName = (log.customerInfo && log.customerInfo.name) ? log.customerInfo.name : 'Unknown Customer';
+                    const orderId = (log.customerInfo && log.customerInfo.orderId) ? log.customerInfo.orderId : 'N/A';
+                    const lastMessage = (log.recentMessage && log.recentMessage.customerMessage) ? 
+                        log.recentMessage.customerMessage.substring(0, 100) + '...' : 'No messages';
                     
                     const div = document.createElement('div');
                     div.className = 'chat-log';
