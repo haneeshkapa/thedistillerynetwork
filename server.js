@@ -12,6 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const ShopifyService = require('./shopify-service');
 const EnhancedSheetsService = require('./enhanced-sheets-service');
+const logger = require('./logger');
 require('dotenv').config();
 
 const app = express();
@@ -35,6 +36,21 @@ app.use(session({
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Request logging middleware
+app.use((req, res, next) => {
+  const startTime = Date.now();
+  
+  // Override res.end to capture response time
+  const originalEnd = res.end;
+  res.end = function(...args) {
+    const responseTime = Date.now() - startTime;
+    logger.request(req, res, responseTime);
+    originalEnd.apply(this, args);
+  };
+  
+  next();
+});
 
 // Custom static file serving with authentication for management.html
 app.use((req, res, next) => {
@@ -155,6 +171,10 @@ function requireAuth(req, res, next) {
   if (req.session && req.session.authenticated) {
     return next();
   } else {
+    logger.warn(`Authentication required for ${req.method} ${req.url}`, { 
+      ip: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('User-Agent')
+    });
     return res.status(401).json({ error: 'Authentication required' });
   }
 }
@@ -178,7 +198,11 @@ app.post('/admin/login', (req, res) => {
     const token = generateToken();
     req.session.token = token;
     
-    console.log(`Admin login successful at ${req.session.loginTime}`);
+    logger.success('Admin login successful', { 
+      ip: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('User-Agent'),
+      loginTime: req.session.loginTime
+    });
     
     res.json({
       success: true,
@@ -186,7 +210,12 @@ app.post('/admin/login', (req, res) => {
       token: token
     });
   } else {
-    console.log(`Failed login attempt with PIN: ${pin} at ${new Date().toISOString()}`);
+    logger.warn('Failed admin login attempt', {
+      attemptedPin: pin.substring(0, 2) + '***', // Log partial PIN for security
+      ip: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('User-Agent'),
+      timestamp: new Date().toISOString()
+    });
     res.status(401).json({
       success: false,
       message: 'Invalid PIN'
@@ -602,7 +631,11 @@ app.post('/reply', async (req, res) => {
       return res.status(400).json({ error: 'Phone and message are required' });
     }
 
-    console.log(`Received message from ${phone}: ${message}`);
+    logger.info(`SMS received from ${phone}`, { 
+      phone,
+      message: message.substring(0, 100) + (message.length > 100 ? '...' : ''), // Truncate long messages
+      sender 
+    });
 
     // Find customer in Google Sheets
     const customer = await findCustomerByPhone(phone);
@@ -791,12 +824,12 @@ I don't have their order information in our system. Respond in your natural styl
     });
 
   } catch (error) {
-    console.error('Error processing request:', error);
-    console.error('Error details:', {
-      message: error.message,
+    logger.error('Error processing SMS reply request', {
+      phone: req.body.phone,
+      error: error.message,
       status: error.status,
       type: error.type,
-      stack: error.stack
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
     
     res.status(500).json({ 
@@ -1417,9 +1450,57 @@ if (shopifyService.enabled) {
   cron.schedule('0 6 * * *', performAutomaticShopifySync);
 }
 
+// Logging Management API Endpoints
+app.get('/admin/logs', requireAuth, (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 100;
+    const logs = logger.getRecentLogs(limit);
+    
+    res.json({
+      success: true,
+      logs,
+      total: logs.length
+    });
+  } catch (error) {
+    logger.error('Failed to fetch logs', { error: error.message });
+    res.status(500).json({ error: 'Failed to fetch logs' });
+  }
+});
+
+app.get('/admin/logs/stats', requireAuth, (req, res) => {
+  try {
+    const stats = logger.getStats();
+    res.json({
+      success: true,
+      stats
+    });
+  } catch (error) {
+    logger.error('Failed to fetch log stats', { error: error.message });
+    res.status(500).json({ error: 'Failed to fetch log stats' });
+  }
+});
+
+app.delete('/admin/logs', requireAuth, (req, res) => {
+  try {
+    const success = logger.clearLogs();
+    if (success) {
+      logger.success('Logs cleared by admin', { 
+        ip: req.ip || req.connection.remoteAddress,
+        userAgent: req.get('User-Agent')
+      });
+      res.json({ success: true, message: 'Logs cleared successfully' });
+    } else {
+      res.status(500).json({ error: 'Failed to clear logs' });
+    }
+  } catch (error) {
+    logger.error('Failed to clear logs', { error: error.message });
+    res.status(500).json({ error: 'Failed to clear logs' });
+  }
+});
+
 // Start server
 app.listen(port, async () => {
-  console.log(`Server running on port ${port}`);
+  logger.success(`SMS Bot server started on port ${port}`);
   loadChatLogs(); // Load existing chat logs
   await initializeGoogleSheets();
   await testClaudeAPI();
