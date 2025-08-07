@@ -619,17 +619,27 @@ app.post('/reply', async (req, res) => {
       const orderId = customer._rawData[0] || 'N/A';
       const product = customer._rawData[1] || 'N/A';
       const email = customer._rawData[5] || 'N/A';
-      const phone = customer._rawData[6] || 'N/A';
+      const customerPhone = customer._rawData[6] || 'N/A';
       const created = customer._rawData[3] || 'N/A';
       
       // Try to get enhanced status information using color-based detection
       try {
         if (enhancedSheetsService.enabled) {
+          console.log(`🔍 Looking up enhanced status for original phone: ${phone}, customer phone: ${customerPhone}`);
           const sheetData = await enhancedSheetsService.getSheetWithOrderStatus();
-          const customerStatus = enhancedSheetsService.findCustomerStatus(sheetData, phone);
+          // Try original phone first, then customer phone from database
+          let customerStatus = enhancedSheetsService.findCustomerStatus(sheetData, phone);
+          if (!customerStatus) {
+            customerStatus = enhancedSheetsService.findCustomerStatus(sheetData, customerPhone);
+          }
           if (customerStatus) {
             customerStatusInfo = customerStatus;
+            console.log(`✅ Enhanced status found:`, customerStatus.status);
+          } else {
+            console.log(`❌ No enhanced status found for phone: ${phone}`);
           }
+        } else {
+          console.log('❌ Enhanced sheets service not enabled');
         }
       } catch (statusError) {
         console.error('Enhanced status lookup failed:', statusError.message);
@@ -687,7 +697,7 @@ app.post('/reply', async (req, res) => {
 
 ${combinedKnowledge ? `COMPANY KNOWLEDGE:\n${combinedKnowledge}\n\n` : ""}Customer Information:
 - Name: ${name}
-- Phone: ${phone}  
+- Phone: ${customerPhone}  
 - Order ID: ${orderId}
 - Product: ${product}
 - Order Date: ${created}
