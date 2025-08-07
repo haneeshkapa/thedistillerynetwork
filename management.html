@@ -470,15 +470,34 @@
         async function loadKnowledge() {
             try {
                 const response = await fetch('/knowledge');
-                const data = await response.json();
                 
                 const list = document.getElementById('knowledgeList');
-                if (data.totalFiles === 0) {
+                
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        list.innerHTML = '<div class="alert alert-warning">❌ Authentication required</div>';
+                        return;
+                    }
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                if (!data || typeof data !== 'object') {
+                    throw new Error('Invalid response format');
+                }
+                
+                if (!data.totalFiles || data.totalFiles === 0) {
                     list.innerHTML = '<div class="alert alert-info">No knowledge entries found. Add some content above!</div>';
                     return;
                 }
                 
                 list.innerHTML = '<h3>📋 Knowledge Entries (' + data.totalFiles + ')</h3>';
+                
+                // Ensure history exists and is an array
+                if (!data.history || !Array.isArray(data.history)) {
+                    throw new Error('Knowledge history data is corrupted or missing');
+                }
                 
                 data.history.forEach(item => {
                     const div = document.createElement('div');
@@ -495,7 +514,9 @@
                     list.appendChild(div);
                 });
             } catch (error) {
-                showAlert('Failed to load knowledge: ' + error.message, 'error');
+                const list = document.getElementById('knowledgeList');
+                list.innerHTML = '<div class="alert alert-danger">Failed to load knowledge: ' + error.message + '</div>';
+                console.error('Knowledge loading error:', error);
             }
         }
 
@@ -1001,6 +1022,16 @@
         async function loadAdminSettings() {
             try {
                 const response = await fetch('/admin/pin');
+                
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        const statusDiv = document.getElementById('pinStatus');
+                        statusDiv.innerHTML = 'Status: ❌ Authentication required';
+                        return;
+                    }
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
                 const data = await response.json();
                 
                 const statusDiv = document.getElementById('pinStatus');
@@ -1071,9 +1102,18 @@
         async function checkShopifyStatus() {
             try {
                 const response = await fetch('/admin/shopify/status');
-                const data = await response.json();
                 
                 const statusDiv = document.getElementById('shopifyStatus');
+                
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        statusDiv.innerHTML = 'Status: ❌ Authentication required';
+                        return;
+                    }
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
                 statusDiv.innerHTML = `
                     Status: ${data.enabled ? '✅ Enabled' : '❌ Not configured'} • 
                     Store: ${data.storeDomain} • 
@@ -1161,9 +1201,18 @@
         async function checkSheetsStatus() {
             try {
                 const response = await fetch('/admin/sheets/status');
-                const data = await response.json();
                 
                 const statusDiv = document.getElementById('sheetsStatus');
+                
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        statusDiv.innerHTML = 'Status: ❌ Authentication required';
+                        return;
+                    }
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
                 statusDiv.innerHTML = `
                     Status: ${data.enabled ? '✅ Enabled' : '❌ Not configured'} • 
                     ${data.configured ? 'API credentials configured' : 'Missing API credentials'} • 

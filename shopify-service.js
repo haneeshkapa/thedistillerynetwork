@@ -5,8 +5,15 @@ class ShopifyService {
         this.storeDomain = process.env.SHOPIFY_STORE_DOMAIN;
         this.accessToken = process.env.SHOPIFY_ACCESS_TOKEN;
         
-        if (!this.storeDomain || !this.accessToken) {
-            console.warn('Shopify credentials not configured. Shopify integration disabled.');
+        // Check for placeholder values or missing credentials
+        const isConfigured = this.storeDomain && 
+                           this.accessToken && 
+                           !this.accessToken.includes('your_') &&
+                           !this.accessToken.includes('_here') &&
+                           this.accessToken.length > 20; // Real Shopify tokens are typically longer
+        
+        if (!isConfigured) {
+            console.warn('Shopify credentials not configured or using placeholder values. Shopify integration disabled.');
             this.enabled = false;
             return;
         }
@@ -294,9 +301,16 @@ class ShopifyService {
 
     // Get sync status
     getSyncStatus() {
+        // Use same logic as constructor to determine if properly configured
+        const isConfigured = this.storeDomain && 
+                           this.accessToken && 
+                           !this.accessToken.includes('your_') &&
+                           !this.accessToken.includes('_here') &&
+                           this.accessToken.length > 20;
+                           
         return {
             enabled: this.enabled,
-            configured: !!(this.storeDomain && this.accessToken),
+            configured: isConfigured,
             storeDomain: this.storeDomain || 'Not configured',
             lastSync: null // Will be updated when sync runs
         };
