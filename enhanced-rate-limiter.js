@@ -149,6 +149,7 @@ class EnhancedRateLimiter extends require('./claude-rate-limiter') {
     
     calculatePriority(message) {
         // Higher priority for certain types of requests
+        if (!message || typeof message !== 'string') return 1;
         const messageLower = message.toLowerCase();
         if (messageLower.includes('urgent') || messageLower.includes('order')) return 3;
         if (messageLower.includes('price') || messageLower.includes('buy')) return 2;
@@ -267,6 +268,7 @@ class EnhancedRateLimiter extends require('./claude-rate-limiter') {
     }
     
     getFallbackResponse(message) {
+        if (!message || typeof message !== 'string') return "Sorry, I'm having trouble understanding your request.";
         const messageLower = message.toLowerCase();
         
         if (messageLower.includes('price') || messageLower.includes('cost')) {

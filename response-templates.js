@@ -61,12 +61,12 @@ class ResponseTemplates {
             }
         };
         
-        // Fallback templates for different scenarios
+        // Fallback templates for different scenarios - Jonathan's voice
         this.fallbacks = {
-            noContext: "I don't have that info right now. Please call (603) 997-6786 or visit moonshinestills.com for assistance.",
-            highDemand: "I'm experiencing high demand right now. Please call (603) 997-6786 or visit moonshinestills.com for immediate assistance.",
-            technicalIssue: "I'm having trouble accessing that information. Please call (603) 997-6786 for help.",
-            unknownQuery: "I'm not sure about that. For product questions and orders, call (603) 997-6786 or visit moonshinestills.com."
+            noContext: "I don't have that specific info on hand right now. Give me a call at (603) 997-6786 and we can chat about it!",
+            highDemand: "Things are pretty busy right now! But hey, give me a ring at (603) 997-6786 and I'll take care of you.",
+            technicalIssue: "Something's acting up on my end. Just give me a call at (603) 997-6786 and we'll sort it out!",
+            unknownQuery: "I'm not totally sure about that one. If it's about stills or distillation, call me at (603) 997-6786 - I love talking shop!"
         };
         
         logger.info('Response templates initialized', {

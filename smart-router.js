@@ -127,6 +127,18 @@ class SmartRouter {
     // Estimate cost for a given model and request
     estimateCost(modelKey, inputLength, estimatedOutputTokens) {
         const model = this.models[modelKey];
+        if (!model) {
+            logger.warn('Model not found for cost estimation', { modelKey, availableModels: Object.keys(this.models) });
+            // Default to sonnet pricing
+            const defaultModel = this.models.sonnet;
+            const inputTokens = Math.ceil(inputLength / 4);
+            return {
+                inputCost: inputTokens * defaultModel.costPerInputToken,
+                outputCost: estimatedOutputTokens * defaultModel.costPerOutputToken,
+                totalCost: inputTokens * defaultModel.costPerInputToken + estimatedOutputTokens * defaultModel.costPerOutputToken
+            };
+        }
+        
         const inputTokens = Math.ceil(inputLength / 4);
         
         const inputCost = inputTokens * model.costPerInputToken;

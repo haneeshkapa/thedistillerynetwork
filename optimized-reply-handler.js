@@ -7,16 +7,25 @@ class OptimizedReplyHandler {
         this.responseTemplates = responseTemplates;
         this.cacheOptimizer = cacheOptimizer;
         
-        // Common query patterns for cheap lane routing
+        // Common query patterns for cheap lane routing - Jonathan's voice
         this.cheapLanePatterns = [
-            // PRIORITY: Moonshine/gallon still inquiries - immediate phone redirect
-            { pattern: /moonshine|gallon.*still|still.*gallon|copper.*still|distill/i, response: "For all moonshine stills and equipment, please call (603) 997-6786 immediately for pricing, availability, and expert guidance." },
+            // Conversational greetings - Jonathan's chill personality
+            { pattern: /^(hi|hey|hello|what's up|whats up|sup)(\s+(jonathan|man|dude|there))?$/i, response: "Hey there! I'm Jonathan from American Copper Works. What can I help you with today? Give me a call at (603) 997-6786 if you want to chat about stills!" },
             
-            // Basic contact info
-            { pattern: /^(hours?|when (are you )?open)$/i, response: "Contact us: (603) 997-6786 or tdnorders@gmail.com. Visit moonshinestills.com for product info." },
-            { pattern: /^(address|location|where are you)$/i, response: "Visit moonshinestills.com for location info or call (603) 997-6786." },
-            { pattern: /^(phone|contact|number)$/i, response: "(603) 997-6786 or tdnorders@gmail.com. Visit moonshinestills.com." },
-            { pattern: /^(website|site|url)$/i, response: "Visit us at moonshinestills.com or call (603) 997-6786." }
+            // Product inquiries - Jonathan's expertise showing through  
+            { pattern: /moonshine|gallon.*still|still.*gallon|copper.*still|distill|equipment/i, response: "Hey! I make quality copper stills and distillation equipment here at American Copper Works. Each one's built to last. Give me a call at (603) 997-6786 and we can talk about what you need!" },
+            
+            // Pricing with Jonathan's personality
+            { pattern: /price|cost|how much|pricing/i, response: "Pricing depends on what you're looking for - I've got everything from DIY kits to complete setups. Give me a ring at (603) 997-6786 and we'll figure out what works best for you!" },
+            
+            // About Jonathan/company
+            { pattern: /about|who are you|tell me about|your company|american copper/i, response: "I'm Jonathan, and I run American Copper Works. Been making quality copper moonshine stills and distillation gear for folks who appreciate good craftsmanship. Check us out at moonshinestills.com or call (603) 997-6786!" },
+            
+            // Basic contact info with personality
+            { pattern: /^(hours?|when (are you )?open)$/i, response: "Just give me a call at (603) 997-6786 or shoot an email to tdnorders@gmail.com. I'm pretty flexible - visit moonshinestills.com too!" },
+            { pattern: /^(address|location|where are you)$/i, response: "Check out moonshinestills.com for all the details or give me a call at (603) 997-6786!" },
+            { pattern: /^(phone|contact|number)$/i, response: "You got it - (603) 997-6786 or tdnorders@gmail.com. Always happy to chat!" },
+            { pattern: /^(website|site|url)$/i, response: "moonshinestills.com - that's where you can see all my work! Or call me at (603) 997-6786." }
         ];
         
         logger.info('Optimized reply handler initialized');
@@ -167,9 +176,7 @@ class OptimizedReplyHandler {
         const response = await anthropic.messages.create({
             model: modelConfig.name,
             max_tokens: modelConfig.maxTokens,
-            messages: [{ role: 'user', content: promptData.full }],
-            // Add cache control headers if available
-            cache_control: { type: 'ephemeral' } // For prompt caching
+            messages: [{ role: 'user', content: promptData.full }]
         });
         
         const inputTokens = response.usage?.input_tokens || Math.ceil(promptData.full.length / 4);
@@ -177,8 +184,13 @@ class OptimizedReplyHandler {
         
         // Calculate cost with caching optimization
         const cacheOptimizedCost = this.cacheOptimizer.estimateTokenCosts(promptData);
-        const actualCost = cacheOptimizedCost.effectiveCost * (modelConfig.costPerInputToken * 1000000) / 1000000 +
-                          outputTokens * modelConfig.costPerOutputToken;
+        
+        // Handle potential missing cost properties safely
+        const inputCostPerToken = modelConfig?.costPerInputToken || 0.000003; // Default Sonnet pricing
+        const outputCostPerToken = modelConfig?.costPerOutputToken || 0.000015;
+        
+        const actualCost = cacheOptimizedCost.effectiveCost * (inputCostPerToken * 1000000) / 1000000 +
+                          outputTokens * outputCostPerToken;
         
         return {
             text: response.content[0].text,
