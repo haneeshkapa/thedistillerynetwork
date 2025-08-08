@@ -12,10 +12,13 @@ class AdvancedKnowledgeRetriever {
         this.docFreqs = new Map(); // Document frequencies
         this.avgDocLength = 0;
         
-        // Configuration
-        this.k1 = 1.2; // BM25 parameter
-        this.b = 0.75; // BM25 parameter
+        // Configuration - Tuned for higher precision
+        this.k1 = 1.4; // BM25 parameter (tuned from grid search)
+        this.b = 0.6; // BM25 parameter (tuned from grid search)  
         this.maxResults = 3;
+        
+        // Cross-encoder gating threshold
+        this.crossEncoderThreshold = 0.4; // Drop chunks below this score
         
         // Initialize reranker/MMR system and price validator
         this.reranker = new RerankerMMR();
@@ -292,19 +295,98 @@ class AdvancedKnowledgeRetriever {
     
     // Main retrieval method with caching-optimized output
     async getOptimizedKnowledge(query) {
-        // Get more candidates for reranking
-        const candidates = this.retrieveRelevantChunks(query, 10);
+        // Optimized candidate retrieval: k_bm25=12, k_semantic=8
+        const bm25Candidates = this.retrieveRelevantChunks(query, 12);
+        const semanticCandidates = this.getSemanticCandidates(query, 8);
         
-        if (candidates.length === 0) {
+        // Merge and deduplicate candidates
+        const mergedCandidates = this.mergeCandidates(bm25Candidates, semanticCandidates);
+        
+        if (mergedCandidates.length === 0) {
             return this.getFallbackResponse();
         }
         
-        // Apply reranking and MMR for diversity
-        const reranked = await this.reranker.rerankCandidates(query, candidates, 5);
-        const finalChunks = this.reranker.applyMMR(query, reranked, this.maxResults);
+        // Apply reranking with cross-encoder gating
+        const reranked = await this.reranker.rerankCandidates(query, mergedCandidates, 5);
+        const gatedChunks = this.applyCrossEncoderGate(reranked);
+        const finalChunks = this.reranker.applyMMR(query, gatedChunks, this.maxResults);
         
         // Format for optimal prompt caching
         return this.formatForCaching(finalChunks, query);
+    }
+    
+    // Get semantic candidates (separate from BM25)
+    getSemanticCandidates(query, maxCandidates = 8) {
+        const results = [];
+        
+        for (const [index, doc] of this.documents.entries()) {
+            const product = this.productIndex.get(index);
+            if (!product) continue;
+            
+            const semanticScore = this.calculateSemanticScore(query, product, doc);
+            
+            if (semanticScore > 0.1) { // Minimum semantic threshold
+                results.push({
+                    index,
+                    score: semanticScore,
+                    product,
+                    content: doc.substring(0, 500)
+                });
+            }
+        }
+        
+        return results
+            .sort((a, b) => b.score - a.score)
+            .slice(0, maxCandidates);
+    }
+    
+    // Merge BM25 and semantic candidates, removing duplicates
+    mergeCandidates(bm25Candidates, semanticCandidates) {
+        const merged = new Map();
+        
+        // Add BM25 candidates with higher weight
+        for (const candidate of bm25Candidates) {
+            merged.set(candidate.index, {
+                ...candidate,
+                bm25Score: candidate.score,
+                semanticScore: 0
+            });
+        }
+        
+        // Add semantic candidates, merge if already exists
+        for (const candidate of semanticCandidates) {
+            if (merged.has(candidate.index)) {
+                const existing = merged.get(candidate.index);
+                existing.semanticScore = candidate.score;
+                existing.score = (existing.bm25Score * 0.6) + (candidate.score * 0.4); // Weighted combination
+            } else {
+                merged.set(candidate.index, {
+                    ...candidate,
+                    bm25Score: 0,
+                    semanticScore: candidate.score
+                });
+            }
+        }
+        
+        return Array.from(merged.values()).sort((a, b) => b.score - a.score);
+    }
+    
+    // Apply cross-encoder gating threshold
+    applyCrossEncoderGate(rerankedCandidates) {
+        return rerankedCandidates.filter(candidate => {
+            const crossScore = candidate.crossScore || candidate.finalScore || candidate.score;
+            const passed = crossScore >= this.crossEncoderThreshold;
+            
+            if (!passed) {
+                logger.debug('Cross-encoder gate filtered candidate', {
+                    score: crossScore,
+                    threshold: this.crossEncoderThreshold,
+                    product: candidate.product?.title?.substring(0, 50)
+                });
+            }
+            
+            return passed;
+        });
     }
     
     formatForCaching(chunks, query) {

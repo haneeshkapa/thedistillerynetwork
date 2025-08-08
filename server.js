@@ -17,6 +17,10 @@ const logger = require('./logger');
 const EnhancedRateLimiter = require('./enhanced-rate-limiter');
 const AdvancedKnowledgeRetriever = require('./advanced-retriever');
 const PromptOptimizer = require('./prompt-optimizer');
+const SmartRouter = require('./smart-router');
+const ResponseTemplates = require('./response-templates');
+const CacheOptimizer = require('./cache-optimizer');
+const BatchProcessor = require('./batch-processor');
 require('dotenv').config();
 
 const app = express();
@@ -543,6 +547,10 @@ const enhancedSheetsService = new EnhancedSheetsService();
 const claudeRateLimiter = new EnhancedRateLimiter();
 const knowledgeRetriever = new AdvancedKnowledgeRetriever();
 const promptOptimizer = new PromptOptimizer(knowledgeRetriever);
+const smartRouter = new SmartRouter();
+const responseTemplates = new ResponseTemplates();
+const cacheOptimizer = new CacheOptimizer();
+const batchProcessor = new BatchProcessor(anthropic);
 
 // Google Sheets setup
 const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID);
@@ -1580,6 +1588,168 @@ app.get('/admin/logs/stats', requireAuth, (req, res) => {
   } catch (error) {
     logger.error('Failed to fetch log stats', { error: error.message });
     res.status(500).json({ error: 'Failed to fetch log stats' });
+  }
+});
+
+// BATCH PROCESSING ENDPOINTS
+
+// Get batch processing analytics
+app.get('/admin/batch/analytics', requireAuth, (req, res) => {
+  try {
+    const analytics = batchProcessor.getBatchAnalytics();
+    res.json({
+      success: true,
+      analytics
+    });
+  } catch (error) {
+    logger.error('Failed to fetch batch analytics', { error: error.message });
+    res.status(500).json({ error: 'Failed to fetch batch analytics' });
+  }
+});
+
+// Create knowledge sync batch job
+app.post('/admin/batch/knowledge-sync', requireAuth, async (req, res) => {
+  try {
+    // Get current products and collections for batch processing
+    const products = await shopifyService.getProducts();
+    const collections = await shopifyService.getCollections();
+    const shopInfo = await shopifyService.getShopInfo();
+    
+    const batch = await batchProcessor.createKnowledgeSyncBatch(products, collections, shopInfo);
+    
+    logger.info('Knowledge sync batch created', { 
+      batchId: batch.id,
+      requestCount: batch.request_counts.total,
+      estimatedCost: batch.metadata.estimated_cost
+    });
+    
+    res.json({
+      success: true,
+      batch: {
+        id: batch.id,
+        status: batch.status,
+        requestCount: batch.request_counts.total,
+        estimatedCost: batch.metadata.estimated_cost,
+        costSavings: batch.metadata.cost_savings
+      }
+    });
+  } catch (error) {
+    logger.error('Failed to create knowledge sync batch', { error: error.message });
+    res.status(500).json({ error: 'Failed to create knowledge sync batch' });
+  }
+});
+
+// Create support content batch job
+app.post('/admin/batch/support-content', requireAuth, async (req, res) => {
+  try {
+    const { queries, productData } = req.body;
+    
+    if (!queries || !Array.isArray(queries)) {
+      return res.status(400).json({ error: 'queries array is required' });
+    }
+    
+    const batch = await batchProcessor.createSupportContentBatch(queries, productData || []);
+    
+    logger.info('Support content batch created', { 
+      batchId: batch.id,
+      queryCount: queries.length
+    });
+    
+    res.json({
+      success: true,
+      batch: {
+        id: batch.id,
+        status: batch.status,
+        requestCount: batch.request_counts.total,
+        estimatedCost: batch.metadata.estimated_cost
+      }
+    });
+  } catch (error) {
+    logger.error('Failed to create support content batch', { error: error.message });
+    res.status(500).json({ error: 'Failed to create support content batch' });
+  }
+});
+
+// Check batch job status
+app.get('/admin/batch/:batchId/status', requireAuth, async (req, res) => {
+  try {
+    const { batchId } = req.params;
+    const status = await batchProcessor.checkBatchStatus(batchId);
+    
+    res.json({
+      success: true,
+      status
+    });
+  } catch (error) {
+    logger.error('Failed to check batch status', { 
+      error: error.message,
+      batchId: req.params.batchId
+    });
+    res.status(500).json({ error: 'Failed to check batch status' });
+  }
+});
+
+// Get batch job results
+app.get('/admin/batch/:batchId/results', requireAuth, async (req, res) => {
+  try {
+    const { batchId } = req.params;
+    const results = await batchProcessor.getBatchResults(batchId);
+    
+    res.json({
+      success: true,
+      results
+    });
+  } catch (error) {
+    logger.error('Failed to get batch results', { 
+      error: error.message,
+      batchId: req.params.batchId
+    });
+    res.status(500).json({ error: 'Failed to get batch results' });
+  }
+});
+
+// Process batch results into knowledge updates
+app.post('/admin/batch/:batchId/process', requireAuth, async (req, res) => {
+  try {
+    const { batchId } = req.params;
+    const { batchType } = req.body;
+    
+    if (!batchType) {
+      return res.status(400).json({ error: 'batchType is required' });
+    }
+    
+    const processed = await batchProcessor.processBatchResults(batchId, batchType);
+    
+    logger.info('Batch results processed', { 
+      batchId,
+      batchType,
+      processed: processed.processed
+    });
+    
+    res.json({
+      success: true,
+      processed
+    });
+  } catch (error) {
+    logger.error('Failed to process batch results', { 
+      error: error.message,
+      batchId: req.params.batchId
+    });
+    res.status(500).json({ error: 'Failed to process batch results' });
+  }
+});
+
+// List all active batch jobs
+app.get('/admin/batch/active', requireAuth, (req, res) => {
+  try {
+    const batches = batchProcessor.getActiveBatches();
+    res.json({
+      success: true,
+      batches
+    });
+  } catch (error) {
+    logger.error('Failed to get active batches', { error: error.message });
+    res.status(500).json({ error: 'Failed to get active batches' });
   }
 });
 

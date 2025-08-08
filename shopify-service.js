@@ -19,7 +19,7 @@ class ShopifyService {
         }
         
         this.enabled = true;
-        this.baseURL = `https://${this.storeDomain}/admin/api/2023-10`;
+        this.baseURL = `https://${this.storeDomain}/admin/api/2024-10`; // Updated to supported version
         this.headers = {
             'X-Shopify-Access-Token': this.accessToken,
             'Content-Type': 'application/json'
