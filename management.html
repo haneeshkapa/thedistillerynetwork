@@ -1410,6 +1410,58 @@
             }
         }
 
+        async function checkClaudeStatus() {
+            try {
+                const response = await fetch('/admin/claude/status');
+                
+                const statusDiv = document.getElementById('claudeStatus');
+                
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        statusDiv.innerHTML = 'Status: ❌ Authentication required';
+                        return;
+                    }
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                statusDiv.innerHTML = `
+                    Status: ${data.configured ? '✅ API Connected' : '❌ Not configured'} • 
+                    Requests: ${data.totalRequests || 0} • 
+                    Rate Limit: ${data.rateLimitStatus} • 
+                    Queue: ${data.queueLength || 0} pending • 
+                    Cache: ${data.cacheSize || 0} entries
+                `;
+            } catch (error) {
+                const statusDiv = document.getElementById('claudeStatus');
+                statusDiv.innerHTML = 'Status: ❌ Error loading status';
+                console.error('Claude status error:', error);
+            }
+        }
+
+        async function clearClaudeCache() {
+            try {
+                showAlert('🗑️ Clearing Claude cache...', 'info');
+                
+                const response = await fetch('/admin/claude/cache', {
+                    method: 'DELETE'
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                showAlert(`✅ Cache cleared! Removed ${data.clearedEntries || 0} entries.`, 'success');
+                
+                // Refresh the status
+                checkClaudeStatus();
+            } catch (error) {
+                showAlert('❌ Failed to clear cache: ' + error.message, 'error');
+                console.error('Clear cache error:', error);
+            }
+        }
+
         async function syncShopifyData() {
             try {
                 showAlert('🔄 Starting Shopify sync... This may take a moment.', 'info');
