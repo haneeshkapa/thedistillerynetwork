@@ -452,5 +452,47 @@
     "firstContact": "2025-08-08T07:22:54.290Z",
     "lastContact": "2025-08-08T07:22:54.290Z",
     "totalMessages": 1
+  },
+  "+15551234567": {
+    "phone": "+15551234567",
+    "customerInfo": null,
+    "messages": [
+      {
+        "timestamp": "2025-08-08T07:47:57.694Z",
+        "customerMessage": "10 gallon still price",
+        "botResponse": "I'm having trouble accessing pricing right now. Please call (603) 997-6786 for current prices, or visit moonshinestills.com.",
+        "customerFound": false
+      },
+      {
+        "timestamp": "2025-08-08T07:48:38.040Z",
+        "customerMessage": "10 gallon price",
+        "botResponse": "I'm having trouble accessing pricing right now. Please call (603) 997-6786 for current prices, or visit moonshinestills.com.",
+        "customerFound": false
+      }
+    ],
+    "firstContact": "2025-08-08T07:47:57.694Z",
+    "lastContact": "2025-08-08T07:48:38.040Z",
+    "totalMessages": 2
+  },
+  "6039976786": {
+    "phone": "6039976786",
+    "customerInfo": null,
+    "messages": [
+      {
+        "timestamp": "2025-08-08T07:48:57.985Z",
+        "customerMessage": "what stills do you have",
+        "botResponse": "I'm experiencing high demand right now. Please call (603) 997-6786 or visit moonshinestills.com for immediate assistance.",
+        "customerFound": false
+      },
+      {
+        "timestamp": "2025-08-08T07:51:25.046Z",
+        "customerMessage": "10 gallon price",
+        "botResponse": "Our 10 Gallon Advanced Model copper still is $899.00 with free shipping to continental US. Includes 220v heating element and all essential components.\n\nWould you like to place an order? I can help get that started - just need your contact info.\n\nCall (603) 997-6786 or visit moonshinestills.com for ordering and full specs.",
+        "customerFound": false
+      }
+    ],
+    "firstContact": "2025-08-08T07:48:57.985Z",
+    "lastContact": "2025-08-08T07:51:25.046Z",
+    "totalMessages": 2
   }
 }

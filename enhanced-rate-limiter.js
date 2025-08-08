@@ -23,6 +23,10 @@ class EnhancedRateLimiter extends require('./claude-rate-limiter') {
         this.maxOutputTokens = 250; // Tight for SMS responses
         this.outputTokenBuffer = 50; // Buffer for safety
         
+        // Add cache for responses
+        this.cache = new Map();
+        this.cacheTTL = 5 * 60 * 1000; // 5 minutes
+        
         logger.info('Enhanced rate limiter initialized', {
             inputTokensPerMinute: this.inputTokensPerMinute,
             outputTokensPerMinute: this.outputTokensPerMinute,
@@ -166,7 +170,7 @@ class EnhancedRateLimiter extends require('./claude-rate-limiter') {
             
             // Make API request with output token limit
             const response = await anthropic.messages.create({
-                model: process.env.CLAUDE_MODEL || 'claude-3-sonnet-20240229',
+                model: process.env.CLAUDE_MODEL || 'claude-3-5-sonnet-20241022',
                 max_tokens: this.maxOutputTokens,
                 messages: [{ role: 'user', content: prompt }]
             });
@@ -181,7 +185,7 @@ class EnhancedRateLimiter extends require('./claude-rate-limiter') {
             this.recordTokenUsage(inputTokens, outputTokens);
             
             // Cache the response
-            this.cacheResponse(cacheKey, responseText);
+            this.setCachedResponse(cacheKey, responseText);
             
             logger.info('API request successful', {
                 phone,
@@ -345,6 +349,41 @@ class EnhancedRateLimiter extends require('./claude-rate-limiter') {
             },
             maxOutputTokens: this.maxOutputTokens
         };
+    }
+    
+    // Get cached response
+    getCachedResponse(cacheKey) {
+        const cached = this.cache.get(cacheKey);
+        if (cached && Date.now() - cached.timestamp < this.cacheTTL) {
+            logger.debug('Cache hit', { cacheKey: cacheKey.substring(0, 20) + '...' });
+            return cached.response;
+        }
+        
+        if (cached) {
+            this.cache.delete(cacheKey);
+        }
+        
+        return null;
+    }
+    
+    // Store response in cache
+    setCachedResponse(cacheKey, response) {
+        this.cache.set(cacheKey, {
+            response,
+            timestamp: Date.now()
+        });
+        
+        // Cleanup old cache entries if cache gets too large
+        if (this.cache.size > 1000) {
+            const now = Date.now();
+            for (const [key, value] of this.cache.entries()) {
+                if (now - value.timestamp > this.cacheTTL) {
+                    this.cache.delete(key);
+                }
+            }
+        }
+        
+        logger.debug('Response cached', { cacheKey: cacheKey.substring(0, 20) + '...' });
     }
 }
 
