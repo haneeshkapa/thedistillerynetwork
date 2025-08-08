@@ -1311,6 +1311,11 @@ app.get('/admin', (req, res) => {
   res.sendFile(path.join(__dirname, 'login.html'));
 });
 
+// Test page for client error logging
+app.get('/test-errors', (req, res) => {
+  res.sendFile(path.join(__dirname, 'test-client-errors.html'));
+});
+
 // CHAT HISTORY MANAGEMENT
 
 // Get all chat logs
@@ -1588,6 +1593,30 @@ app.get('/admin/logs/stats', requireAuth, (req, res) => {
   } catch (error) {
     logger.error('Failed to fetch log stats', { error: error.message });
     res.status(500).json({ error: 'Failed to fetch log stats' });
+  }
+});
+
+// CLIENT-SIDE ERROR LOGGING ENDPOINT
+app.post('/admin/client-error', (req, res) => {
+  try {
+    const { message, source, lineno, colno, stack, userAgent, url } = req.body;
+    
+    logger.error('Client-side JavaScript error', {
+      error: message,
+      source: source || 'unknown',
+      line: lineno || 'unknown',
+      column: colno || 'unknown',
+      stack: stack || 'not provided',
+      userAgent: userAgent || req.get('User-Agent'),
+      page: url || 'unknown',
+      ip: req.ip || req.connection.remoteAddress,
+      timestamp: new Date().toISOString()
+    });
+    
+    res.json({ success: true, message: 'Error logged successfully' });
+  } catch (error) {
+    console.error('Failed to log client error:', error);
+    res.status(500).json({ error: 'Failed to log client error' });
   }
 });
 

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Client Error Logging</title>
+</head>
+<body>
+    <h1>Test Client Error Logging</h1>
+    <button onclick="testReferenceError()">Test Reference Error</button>
+    <button onclick="testPromiseRejection()">Test Promise Rejection</button>
+    <button onclick="testManualLog()">Test Manual Log</button>
+    
+    <script>
+        // Copy the error logging code from management.html
+        window.addEventListener('error', function(event) {
+            logClientError({
+                message: event.message,
+                source: event.filename,
+                lineno: event.lineno,
+                colno: event.colno,
+                stack: event.error ? event.error.stack : null,
+                userAgent: navigator.userAgent,
+                url: window.location.href
+            });
+        });
+
+        window.addEventListener('unhandledrejection', function(event) {
+            logClientError({
+                message: 'Unhandled Promise Rejection: ' + (event.reason || 'Unknown'),
+                source: window.location.href,
+                stack: event.reason && event.reason.stack ? event.reason.stack : null,
+                userAgent: navigator.userAgent,
+                url: window.location.href
+            });
+        });
+
+        async function logClientError(errorData) {
+            try {
+                await fetch('/admin/client-error', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(errorData)
+                });
+                console.log('Error logged to server:', errorData.message);
+            } catch (e) {
+                console.error('Failed to log client error to server:', e);
+            }
+        }
+
+        function logError(message, source, error) {
+            const errorData = {
+                message: message,
+                source: source || window.location.href,
+                stack: error ? error.stack : null,
+                userAgent: navigator.userAgent,
+                url: window.location.href
+            };
+            
+            logClientError(errorData);
+            console.error(message, error);
+        }
+
+        // Test functions
+        function testReferenceError() {
+            // This will cause a ReferenceError
+            nonExistentFunction();
+        }
+        
+        function testPromiseRejection() {
+            // This will cause an unhandled promise rejection
+            new Promise((resolve, reject) => {
+                reject(new Error('Test promise rejection'));
+            });
+        }
+        
+        function testManualLog() {
+            try {
+                throw new Error('Manual test error');
+            } catch (error) {
+                logError('Manual test error caught', 'testManualLog', error);
+            }
+        }
+    </script>
+</body>
+</html>
