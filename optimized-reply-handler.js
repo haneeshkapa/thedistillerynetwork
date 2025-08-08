@@ -9,6 +9,10 @@ class OptimizedReplyHandler {
         
         // Common query patterns for cheap lane routing
         this.cheapLanePatterns = [
+            // PRIORITY: Moonshine/gallon still inquiries - immediate phone redirect
+            { pattern: /moonshine|gallon.*still|still.*gallon|copper.*still|distill/i, response: "For all moonshine stills and equipment, please call (603) 997-6786 immediately for pricing, availability, and expert guidance." },
+            
+            // Basic contact info
             { pattern: /^(hours?|when (are you )?open)$/i, response: "Contact us: (603) 997-6786 or tdnorders@gmail.com. Visit moonshinestills.com for product info." },
             { pattern: /^(address|location|where are you)$/i, response: "Visit moonshinestills.com for location info or call (603) 997-6786." },
             { pattern: /^(phone|contact|number)$/i, response: "(603) 997-6786 or tdnorders@gmail.com. Visit moonshinestills.com." },

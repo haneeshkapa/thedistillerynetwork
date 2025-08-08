@@ -468,11 +468,41 @@
         "customerMessage": "10 gallon price",
         "botResponse": "I'm having trouble accessing pricing right now. Please call (603) 997-6786 for current prices, or visit moonshinestills.com.",
         "customerFound": false
+      },
+      {
+        "timestamp": "2025-08-08T08:01:14.053Z",
+        "customerMessage": "10 gallon moonshine still",
+        "botResponse": "Our 10 Gallon Advanced Model Copper Still is our most popular unit - features all-copper construction, 220v heating element, and comes complete with temperature gauge and cooling lines. Priced at $899 with free shipping.\n\nWould you like to place an order? I can help get that started - just need your contact info. You can also:\n\n- Call us: (603) 997-6786\n- Visit: moonshinestills.com\n- Email: tdnorders@gmail.com\n\nLet me know if you have any other questions about features or specs!",
+        "customerFound": false
+      },
+      {
+        "timestamp": "2025-08-08T08:04:44.952Z",
+        "customerMessage": "moonshine still",
+        "botResponse": "For all moonshine stills and equipment, please call (603) 997-6786 immediately for pricing, availability, and expert guidance.",
+        "customerFound": false
+      },
+      {
+        "timestamp": "2025-08-08T08:04:58.762Z",
+        "customerMessage": "10 gallon copper still",
+        "botResponse": "For all moonshine stills and equipment, please call (603) 997-6786 immediately for pricing, availability, and expert guidance.",
+        "customerFound": false
+      },
+      {
+        "timestamp": "2025-08-08T08:05:09.600Z",
+        "customerMessage": "distilling equipment",
+        "botResponse": "For all moonshine stills and equipment, please call (603) 997-6786 immediately for pricing, availability, and expert guidance.",
+        "customerFound": false
+      },
+      {
+        "timestamp": "2025-08-08T08:05:21.534Z",
+        "customerMessage": "what are your hours",
+        "botResponse": "I'm having trouble accessing that information. Please call (603) 997-6786 for help.",
+        "customerFound": false
       }
     ],
     "firstContact": "2025-08-08T07:47:57.694Z",
-    "lastContact": "2025-08-08T07:48:38.040Z",
-    "totalMessages": 2
+    "lastContact": "2025-08-08T08:05:21.534Z",
+    "totalMessages": 7
   },
   "6039976786": {
     "phone": "6039976786",

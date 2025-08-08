@@ -21,6 +21,7 @@ const SmartRouter = require('./smart-router');
 const ResponseTemplates = require('./response-templates');
 const CacheOptimizer = require('./cache-optimizer');
 const BatchProcessor = require('./batch-processor');
+const OptimizedReplyHandler = require('./optimized-reply-handler');
 require('dotenv').config();
 
 const app = express();
@@ -551,6 +552,7 @@ const smartRouter = new SmartRouter();
 const responseTemplates = new ResponseTemplates();
 const cacheOptimizer = new CacheOptimizer();
 const batchProcessor = new BatchProcessor(anthropic);
+const optimizedReplyHandler = new OptimizedReplyHandler(knowledgeRetriever, smartRouter, responseTemplates, cacheOptimizer);
 
 // Google Sheets setup
 const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID);
@@ -758,11 +760,16 @@ app.post('/reply', async (req, res) => {
       queueStatus: claudeRateLimiter.getStatus()
     });
     
-    const reply = await claudeRateLimiter.processRequest(anthropic, {
-      phone,
-      message,
-      prompt
-    });
+    // Prepare customer info for optimized handler
+    const customerInfo = customer ? {
+      name: customer._rawData[2],
+      orderId: customer._rawData[0],
+      product: customer._rawData[1]
+    } : null;
+    
+    // Use optimized reply handler with all optimizations
+    const result = await optimizedReplyHandler.processMessage(message, phone, customerInfo, anthropic);
+    const reply = result.reply;
     
     logger.info('Claude API response received', { 
       phone,
@@ -770,13 +777,6 @@ app.post('/reply', async (req, res) => {
     });
     
     console.log(`Generated reply: ${reply}`);
-    
-    // Log this conversation
-    const customerInfo = customer ? {
-      name: customer._rawData[2],
-      orderId: customer._rawData[0],
-      product: customer._rawData[1]
-    } : null;
     
     logChatMessage(phone, message, reply, customerInfo);
 

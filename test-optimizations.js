@@ -16,6 +16,9 @@ async function testOptimizations() {
     // Test queries with different complexities
     const testQueries = [
         // Cheap lane queries (should be instant)
+        { query: "moonshine still", expectedMethod: "cheap_lane" },
+        { query: "10 gallon still", expectedMethod: "cheap_lane" },
+        { query: "copper distilling equipment", expectedMethod: "cheap_lane" },
         { query: "hours", expectedMethod: "cheap_lane" },
         { query: "phone", expectedMethod: "cheap_lane" },
         { query: "website", expectedMethod: "cheap_lane" },
@@ -130,6 +133,9 @@ async function testOptimizations() {
 // Helper functions
 function checkCheapLane(message) {
     const cheapPatterns = [
+        // PRIORITY: Moonshine/gallon still inquiries - immediate phone redirect
+        { pattern: /moonshine|gallon.*still|still.*gallon|copper.*still|distill/i, response: "For all moonshine stills and equipment, please call (603) 997-6786 immediately." },
+        
         { pattern: /^(hours?|when (are you )?open)$/i, response: "Contact us: (603) 997-6786" },
         { pattern: /^(phone|contact|number)$/i, response: "(603) 997-6786" },
         { pattern: /^(website|site|url)$/i, response: "moonshinestills.com" }
