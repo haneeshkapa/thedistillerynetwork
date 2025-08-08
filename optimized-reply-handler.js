@@ -12,8 +12,8 @@ class OptimizedReplyHandler {
             // Conversational greetings - Jonathan's chill personality
             { pattern: /^(hi|hey|hello|what's up|whats up|sup)(\s+(jonathan|man|dude|there))?$/i, response: "Hey there! I'm Jonathan from American Copper Works. What can I help you with today? Give me a call at (603) 997-6786 if you want to chat about stills!" },
             
-            // Product inquiries - Jonathan's expertise showing through  
-            { pattern: /moonshine|gallon.*still|still.*gallon|copper.*still|distill|equipment/i, response: "Hey! I make quality copper stills and distillation equipment here at American Copper Works. Each one's built to last. Give me a call at (603) 997-6786 and we can talk about what you need!" },
+            // Simple product inquiries - more complex distillation questions go to AI
+            { pattern: /^(what do you make|what do you sell)$/i, response: "Hey! I make quality copper stills and distillation equipment here at American Copper Works. Each one's built to last. Give me a call at (603) 997-6786 and we can talk about what you need!" },
             
             // Pricing with Jonathan's personality
             { pattern: /price|cost|how much|pricing/i, response: "Pricing depends on what you're looking for - I've got everything from DIY kits to complete setups. Give me a ring at (603) 997-6786 and we'll figure out what works best for you!" },
