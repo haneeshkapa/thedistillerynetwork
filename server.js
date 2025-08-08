@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const cron = require('node-cron');
 const { GoogleSpreadsheet } = require('google-spreadsheet');
 const Anthropic = require('@anthropic-ai/sdk');
+const GoogleAIService = require('./google-ai-service');
 const multer = require('multer');
 const pdfParse = require('pdf-parse');
 const XLSX = require('xlsx');
@@ -13,6 +14,9 @@ const path = require('path');
 const ShopifyService = require('./shopify-service');
 const EnhancedSheetsService = require('./enhanced-sheets-service');
 const logger = require('./logger');
+const EnhancedRateLimiter = require('./enhanced-rate-limiter');
+const AdvancedKnowledgeRetriever = require('./advanced-retriever');
+const PromptOptimizer = require('./prompt-optimizer');
 require('dotenv').config();
 
 const app = express();
@@ -536,6 +540,9 @@ async function testClaudeAPI() {
 // Initialize services
 const shopifyService = new ShopifyService();
 const enhancedSheetsService = new EnhancedSheetsService();
+const claudeRateLimiter = new EnhancedRateLimiter();
+const knowledgeRetriever = new AdvancedKnowledgeRetriever();
+const promptOptimizer = new PromptOptimizer(knowledgeRetriever);
 
 // Google Sheets setup
 const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID);
@@ -651,8 +658,10 @@ app.post('/reply', async (req, res) => {
       // Get personality and knowledge from environment and uploaded files
       const personality = personalityText || process.env.CLAUDE_PERSONALITY || "You are a helpful customer service representative";
       const envKnowledge = process.env.CLAUDE_KNOWLEDGE || "";
-      const fileKnowledge = knowledgeBase || "";
-      const combinedKnowledge = [envKnowledge, fileKnowledge].filter(k => k).join('\n\n');
+      
+      // Get optimized knowledge with advanced retrieval
+      const relevantKnowledge = knowledgeRetriever.getOptimizedKnowledge(message);
+      const combinedKnowledge = [envKnowledge, relevantKnowledge].filter(k => k).join('\n\n');
       
       // Format conversation history
       let historyContext = '';
@@ -696,24 +705,21 @@ app.post('/reply', async (req, res) => {
         }
       }
 
-      prompt = `${personality}
-
-${combinedKnowledge ? `COMPANY KNOWLEDGE:\n${combinedKnowledge}\n\n` : ""}Customer Information:
-- Name: ${name}
-- Phone: ${customerPhone}  
-- Order ID: ${orderId}
-- Product: ${product}
-- Order Date: ${created}
-- Email: ${email}${statusContext}${historyContext}
-Customer has sent: "${message}"
-
-Respond in your natural style, keeping it concise like an SMS. Use the customer info, company knowledge, conversation history, and order status to provide helpful, contextual assistance. Pay special attention to the order status information above when crafting your response.`;
+      prompt = promptOptimizer.optimizePrompt({
+        personality,
+        combinedKnowledge,
+        customerInfo: { name, customerPhone, orderId, product, created, email, statusContext },
+        message,
+        conversationHistory: historyContext
+      });
     } else {
       // Get personality and knowledge from environment and uploaded files
       const personality = personalityText || process.env.CLAUDE_PERSONALITY || "You are a helpful customer service representative";
       const envKnowledge = process.env.CLAUDE_KNOWLEDGE || "";
-      const fileKnowledge = knowledgeBase || "";
-      const combinedKnowledge = [envKnowledge, fileKnowledge].filter(k => k).join('\n\n');
+      
+      // Get optimized knowledge with advanced retrieval
+      const relevantKnowledge = knowledgeRetriever.getOptimizedKnowledge(message);
+      const combinedKnowledge = [envKnowledge, relevantKnowledge].filter(k => k).join('\n\n');
       
       // Format conversation history
       let historyContext = '';
@@ -727,27 +733,33 @@ Respond in your natural style, keeping it concise like an SMS. Use the customer 
         historyContext += 'CURRENT MESSAGE:\n';
       }
       
-      prompt = `${personality}
-
-${combinedKnowledge ? `COMPANY KNOWLEDGE:\n${combinedKnowledge}\n\n` : ""}${historyContext}
-Customer has sent: "${message}"
-
-I don't have their order information in our system. Respond in your natural style, using the conversation history to provide context. Ask them to provide their order number or contact information so you can assist them better. Keep it concise like an SMS.`;
+      prompt = promptOptimizer.optimizeGuestPrompt({
+        personality,
+        combinedKnowledge,
+        message,
+        conversationHistory: historyContext
+      });
     }
 
-    // Get response from Claude
-    console.log('Sending prompt to Claude...');
-    console.log('API Key exists:', !!process.env.ANTHROPIC_API_KEY);
-    console.log('API Key starts with:', process.env.ANTHROPIC_API_KEY?.substring(0, 10));
-    
-    const response = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
-      max_tokens: 300,
-      messages: [{ role: 'user', content: prompt }]
+    // Log prompt metrics
+    const promptMetrics = promptOptimizer.getPromptMetrics(prompt);
+    logger.info('Sending request to Claude API', { 
+      phone,
+      messageLength: message.length,
+      promptMetrics,
+      queueStatus: claudeRateLimiter.getStatus()
     });
-
-    const reply = response.content[0].text;
-    console.log('Claude response received:', reply);
+    
+    const reply = await claudeRateLimiter.processRequest(anthropic, {
+      phone,
+      message,
+      prompt
+    });
+    
+    logger.info('Claude API response received', { 
+      phone,
+      replyLength: reply.length 
+    });
     
     console.log(`Generated reply: ${reply}`);
     
@@ -1507,6 +1519,37 @@ app.post('/webhook/shopify', express.raw({ type: 'application/json' }), (req, re
       headers: req.headers 
     });
     res.status(500).send('Internal Server Error');
+  }
+});
+
+// Claude API Rate Limiter Management Endpoints
+app.get('/admin/claude/status', requireAuth, (req, res) => {
+  try {
+    const status = claudeRateLimiter.getStatus();
+    res.json({
+      success: true,
+      status
+    });
+  } catch (error) {
+    logger.error('Failed to get Claude API status', { error: error.message });
+    res.status(500).json({ error: 'Failed to get Claude API status' });
+  }
+});
+
+app.delete('/admin/claude/cache', requireAuth, (req, res) => {
+  try {
+    const clearedCount = claudeRateLimiter.clearCache();
+    logger.success('Claude API cache cleared by admin', { 
+      clearedEntries: clearedCount,
+      ip: req.ip || req.connection.remoteAddress
+    });
+    res.json({ 
+      success: true, 
+      message: `Cleared ${clearedCount} cached responses` 
+    });
+  } catch (error) {
+    logger.error('Failed to clear Claude API cache', { error: error.message });
+    res.status(500).json({ error: 'Failed to clear cache' });
   }
 });
 

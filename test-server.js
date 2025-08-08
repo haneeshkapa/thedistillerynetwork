@@ -30,7 +30,7 @@ async function testServer() {
     console.log('\n3️⃣ Testing SMS reply generation...');
     const reply = await axios.post(`${SERVER_URL}/reply`, {
       phone: '1234567890',
-      message: 'Where is my order?'
+      message: 'What are your copper vessel prices?'
     });
     console.log('✅ SMS reply generated:', reply.data.reply);
     console.log('📊 Customer found:', reply.data.customerFound);

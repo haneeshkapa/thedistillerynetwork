@@ -386,6 +386,17 @@
             </div>
 
             <div class="current-personality" style="margin-top: 30px;">
+                <h4>🤖 Claude API Status</h4>
+                <div id="claudeStatus" class="source">
+                    Loading Claude API status...
+                </div>
+                <div style="margin-top: 10px;">
+                    <button class="btn btn-secondary" onclick="checkClaudeStatus()">🔄 Refresh Status</button>
+                    <button class="btn btn-warning" onclick="clearClaudeCache()" style="margin-left: 10px;">🗑️ Clear Cache</button>
+                </div>
+            </div>
+
+            <div class="current-personality" style="margin-top: 30px;">
                 <h4>📊 Google Sheets Formatting</h4>
                 <div id="sheetsStatus" class="source">
                     <!-- Sheets status will be loaded here -->
@@ -1315,6 +1326,9 @@
                 
                 // Load Sheets status
                 checkSheetsStatus();
+                
+                // Load Claude API status
+                checkClaudeStatus();
             } catch (error) {
                 showAlert('Failed to load admin settings: ' + error.message, 'error');
             }
