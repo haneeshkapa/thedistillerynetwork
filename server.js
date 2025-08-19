@@ -22,6 +22,17 @@ const ResponseTemplates = require('./response-templates');
 const CacheOptimizer = require('./cache-optimizer');
 const BatchProcessor = require('./batch-processor');
 const OptimizedReplyHandler = require('./optimized-reply-handler');
+const MultiTierCache = require('./multi-tier-cache');
+const ContextualIntentRouter = require('./intent-router');
+const ConversationGraph = require('./conversation-graph');
+const HybridVectorRetriever = require('./hybrid-vector-retriever');
+const EnterpriseMonitoring = require('./enterprise-monitoring');
+
+// Use PostgreSQL storage on Render, MySQL locally
+const EnterpriseChatStorage = process.env.DATABASE_URL ? 
+    require('./enterprise-chat-storage-postgres') : 
+    require('./enterprise-chat-storage');
+
 require('dotenv').config();
 
 const app = express();
@@ -554,6 +565,44 @@ const cacheOptimizer = new CacheOptimizer();
 const batchProcessor = new BatchProcessor(anthropic);
 const optimizedReplyHandler = new OptimizedReplyHandler(knowledgeRetriever, smartRouter, responseTemplates, cacheOptimizer);
 
+// Enhanced components
+const multiTierCache = new MultiTierCache();
+const intentRouter = new ContextualIntentRouter();
+const conversationGraph = new ConversationGraph();
+const hybridVectorRetriever = new HybridVectorRetriever();
+
+// Enterprise chat storage
+const enterpriseChatStorage = new EnterpriseChatStorage({
+    maxActiveConversations: parseInt(process.env.MAX_ACTIVE_CONVERSATIONS) || 1000,
+    maxMessagesPerCustomer: parseInt(process.env.MAX_MESSAGES_PER_CUSTOMER) || 50,
+    archiveAfterDays: parseInt(process.env.ARCHIVE_AFTER_DAYS) || 30,
+    compressionEnabled: process.env.COMPRESSION_ENABLED === 'true'
+});
+
+// Enterprise monitoring
+const enterpriseMonitoring = new EnterpriseMonitoring({
+    serviceName: 'sms-bot',
+    version: '1.0.0',
+    environment: process.env.NODE_ENV || 'development',
+    elasticsearch: {
+        enabled: process.env.ELASTIC_ENABLED === 'true',
+        host: process.env.ELASTIC_HOST || 'localhost:9200',
+        auth: {
+            username: process.env.ELASTIC_USER,
+            password: process.env.ELASTIC_PASSWORD
+        }
+    },
+    prometheus: {
+        enabled: process.env.PROMETHEUS_ENABLED === 'true',
+        gateway: process.env.PROMETHEUS_GATEWAY || 'localhost:9091'
+    },
+    datadog: {
+        enabled: process.env.DATADOG_ENABLED === 'true',
+        apiKey: process.env.DATADOG_API_KEY
+    },
+    webhooks: process.env.MONITORING_WEBHOOKS ? JSON.parse(process.env.MONITORING_WEBHOOKS) : []
+});
+
 // Google Sheets setup
 const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID);
 
@@ -573,36 +622,99 @@ async function initializeGoogleSheets() {
   }
 }
 
+// Helper function to normalize phone numbers
+function normalizePhoneNumber(phone) {
+  if (!phone) return '';
+  
+  let phoneStr = phone.toString();
+  
+  // Convert scientific notation to regular number if needed
+  if (phoneStr.includes('E+')) {
+    phoneStr = Number(phone).toString();
+  }
+  
+  // Remove all non-digit characters
+  const digitsOnly = phoneStr.replace(/\D/g, '');
+  
+  // If it starts with 1 and has 11 digits, remove the leading 1
+  if (digitsOnly.length === 11 && digitsOnly.startsWith('1')) {
+    return digitsOnly.substring(1);
+  }
+  
+  return digitsOnly;
+}
+
 // Helper function to find customer by phone
 async function findCustomerByPhone(phone) {
   try {
     const sheet = doc.sheetsByIndex[0]; // Use first sheet
     const rows = await sheet.getRows();
     
-    // Clean phone number (remove spaces, dashes, parentheses)
-    const cleanPhone = phone.replace(/[\s\-\(\)]/g, '');
+    // Normalize the input phone number
+    const normalizedInputPhone = normalizePhoneNumber(phone);
     
-    // Log first row to understand structure
+    console.log(`🔍 Looking for phone: ${phone} -> normalized: ${normalizedInputPhone}`);
+    
+    // Log first row to understand structure (only once)
     if (rows.length > 0) {
-      console.log('Sheet headers:', Object.keys(rows[0]));
-      console.log('First row data:', rows[0]._rawData);
+      console.log('📋 Sheet structure - Headers:', Object.keys(rows[0]));
+      console.log('📋 First row data:', rows[0]._rawData);
     }
     
-    return rows.find(row => {
-      // Phone is in position 6 (7th column) based on your data
-      const phoneField = row._rawData[6];
+    // Search through all rows
+    const foundCustomer = rows.find((row, index) => {
+      // Check multiple possible phone columns (6 is expected, but let's be flexible)
+      const possiblePhoneColumns = [6, 5, 7, 4]; // Common phone column positions
       
-      if (!phoneField) return false;
-      
-      // Convert scientific notation to regular number if needed
-      let phoneStr = phoneField.toString();
-      if (phoneStr.includes('E+')) {
-        phoneStr = Number(phoneField).toString();
+      for (const colIndex of possiblePhoneColumns) {
+        const phoneField = row._rawData[colIndex];
+        
+        if (!phoneField) continue;
+        
+        const normalizedRowPhone = normalizePhoneNumber(phoneField);
+        
+        // Debug log for the expected column (6)
+        if (colIndex === 6) {
+          console.log(`Row ${index}, Col ${colIndex}: "${phoneField}" -> "${normalizedRowPhone}"`);
+        }
+        
+        // Check for exact match
+        if (normalizedRowPhone === normalizedInputPhone) {
+          console.log(`✅ EXACT MATCH found at Row ${index}, Column ${colIndex}!`);
+          return true;
+        }
+        
+        // Check for partial matches (in case of formatting differences)
+        if (normalizedRowPhone.length >= 10 && normalizedInputPhone.length >= 10) {
+          const rowLast10 = normalizedRowPhone.slice(-10);
+          const inputLast10 = normalizedInputPhone.slice(-10);
+          
+          if (rowLast10 === inputLast10) {
+            console.log(`✅ PARTIAL MATCH found at Row ${index}, Column ${colIndex}! (last 10 digits)`);
+            return true;
+          }
+        }
       }
       
-      const rowPhone = phoneStr.replace(/[\s\-\(\)\.]/g, '');
-      return rowPhone === cleanPhone || rowPhone.includes(cleanPhone) || cleanPhone.includes(rowPhone);
+      return false;
     });
+    
+    if (foundCustomer) {
+      console.log('🎉 Customer found!', foundCustomer._rawData);
+    } else {
+      console.log('❌ Customer not found in any column');
+      // Show all phone numbers in the sheet for debugging
+      console.log('📱 All phone numbers in sheet (Column 6):');
+      rows.slice(0, 10).forEach((row, index) => { // Show first 10 rows
+        const phoneField = row._rawData[6];
+        if (phoneField) {
+          console.log(`  Row ${index}: "${phoneField}" -> "${normalizePhoneNumber(phoneField)}"`);
+        }
+      });
+    }
+    
+    return foundCustomer;
+    
   } catch (error) {
     console.error('Error finding customer:', error);
     return null;
@@ -611,7 +723,15 @@ async function findCustomerByPhone(phone) {
 
 // Main SMS reply endpoint
 app.post('/reply', async (req, res) => {
+  const startTime = Date.now();
+  
   try {
+    // Log the complete raw request for debugging Tasker integration
+    console.log('=== RAW REQUEST DEBUG ===');
+    console.log('Headers:', JSON.stringify(req.headers, null, 2));
+    console.log('Body:', JSON.stringify(req.body, null, 2));
+    console.log('========================');
+    
     const { phone, message, sender } = req.body;
     
     if (!phone || !message) {
@@ -624,26 +744,82 @@ app.post('/reply', async (req, res) => {
       sender 
     });
 
-    // Find customer in Google Sheets
+    // Track SMS received
+    enterpriseMonitoring.trackSMS('received', { phone, messageLength: message.length, sender });
+
+    // FIRST: Check if customer exists in database
     const customer = await findCustomerByPhone(phone);
+    if (!customer) {
+      logger.info('Phone number not found in customer database - sending helpful response', { phone });
+      enterpriseMonitoring.info('Unknown customer contacted', { phone, reason: 'not_in_database' });
+      
+      // Send helpful response for unknown customers
+      const unknownCustomerResponse = `Hey there! I don't see this number in our customer database, but I'm happy to help! 
+
+If you've placed an order with American Copper Works, please call me at (603) 997-6786 or email tdnorders@gmail.com with your order details so I can look you up properly.
+
+If you're interested in our copper stills and distillation equipment, check out moonshinestills.com or give me a call - I love talking about the craft!`;
+
+      // Store this interaction
+      await enterpriseChatStorage.storeMessage(phone, message, unknownCustomerResponse, {
+        customerFound: false,
+        provider: 'unknown_customer_handler'
+      });
+
+      return res.json({ 
+        response: unknownCustomerResponse,
+        customerFound: false
+      });
+    }
+
+    // ENHANCED FEATURE 1: Intent Routing (bypass AI for simple queries) - ONLY for verified customers
+    const intentResponse = await intentRouter.routeQuery(message, phone);
+    if (intentResponse) {
+      logger.info('Intent routing provided response', { phone, intent: 'detected' });
+      enterpriseMonitoring.trackCacheOperation('intent_router', true);
+      
+      // Store in conversation graph
+      await conversationGraph.addConversationNode(phone, message, [], intentResponse, {
+        provider: 'intent_router',
+        processingTime: Date.now() - startTime,
+        cacheHit: true
+      });
+      
+      // Track successful SMS response
+      enterpriseMonitoring.trackSMS('responded', { phone, provider: 'intent_router', responseTime: Date.now() - startTime });
+      
+      return res.json({ response: intentResponse });
+    }
+
+    // ENHANCED FEATURE 2: Multi-tier cache check
+    const cacheKey = `${phone}:${message}`;
+    const cachedResponse = await multiTierCache.get(cacheKey, 'conversation');
+    if (cachedResponse) {
+      logger.info('Cache hit - serving cached response', { phone });
+      enterpriseMonitoring.trackCacheOperation('multi_tier_cache', true);
+      enterpriseMonitoring.trackSMS('responded', { phone, provider: 'cache', responseTime: Date.now() - startTime });
+      return res.json({ response: cachedResponse });
+    }
     
-    // Get conversation history for context
-    const conversationHistory = getConversationHistory(phone, 5); // Last 5 messages
+    enterpriseMonitoring.trackCacheOperation('multi_tier_cache', false);
+    
+    // Get conversation history for context using enterprise storage
+    const conversationHistory = await enterpriseChatStorage.getConversationHistory(phone, 5); // Last 5 messages
     
     let prompt;
     let customerStatusInfo = null;
     
-    if (customer) {
-      // Map data based on your sheet structure
-      const name = customer._rawData[2] || customer.shipping_name || 'N/A';
-      const orderId = customer._rawData[0] || 'N/A';
-      const product = customer._rawData[1] || 'N/A';
-      const email = customer._rawData[5] || 'N/A';
-      const customerPhone = customer._rawData[6] || 'N/A';
-      const created = customer._rawData[3] || 'N/A';
-      
-      // Try to get enhanced status information using color-based detection
-      try {
+    // Process customer (we know customer exists due to early return above)
+    // Map data based on your sheet structure
+    const name = customer._rawData[2] || customer.shipping_name || 'N/A';
+    const orderId = customer._rawData[0] || 'N/A';
+    const product = customer._rawData[1] || 'N/A';
+    const email = customer._rawData[5] || 'N/A';
+    const customerPhone = customer._rawData[6] || 'N/A';
+    const created = customer._rawData[3] || 'N/A';
+    
+    // Try to get enhanced status information using color-based detection
+    try {
         if (enhancedSheetsService.enabled) {
           console.log(`🔍 Looking up enhanced status for original phone: ${phone}, customer phone: ${customerPhone}`);
           const sheetData = await enhancedSheetsService.getSheetWithOrderStatus();
@@ -661,95 +837,77 @@ app.post('/reply', async (req, res) => {
         } else {
           console.log('❌ Enhanced sheets service not enabled');
         }
-      } catch (statusError) {
-        console.error('Enhanced status lookup failed:', statusError.message);
-      }
-      
-      // Get personality and knowledge from environment and uploaded files
-      const personality = personalityText || process.env.CLAUDE_PERSONALITY || "You are a helpful customer service representative";
-      const envKnowledge = process.env.CLAUDE_KNOWLEDGE || "";
-      
-      // Get optimized knowledge with advanced retrieval
-      const relevantKnowledge = knowledgeRetriever.getOptimizedKnowledge(message);
-      const combinedKnowledge = [envKnowledge, relevantKnowledge].filter(k => k).join('\n\n');
-      
-      // Format conversation history
-      let historyContext = '';
-      if (conversationHistory.length > 0) {
-        historyContext = '\n\nPREVIOUS CONVERSATION:\n';
-        conversationHistory.forEach((msg, i) => {
-          historyContext += `[${new Date(msg.timestamp).toLocaleString()}]\n`;
-          historyContext += `Customer: ${msg.customerMessage}\n`;
-          historyContext += `You: ${msg.botResponse}\n\n`;
-        });
-        historyContext += 'CURRENT MESSAGE:\n';
-      }
-      
-      // Enhanced status information for better customer service responses
-      let statusContext = '';
-      if (customerStatusInfo && customerStatusInfo.status) {
+    } catch (statusError) {
+      console.error('Enhanced status lookup failed:', statusError.message);
+    }
+    
+    // Get personality and knowledge from environment and uploaded files
+    const personality = personalityText || process.env.CLAUDE_PERSONALITY || "You are a helpful customer service representative";
+    const envKnowledge = process.env.CLAUDE_KNOWLEDGE || "";
+    
+    // Get optimized knowledge with hybrid vector retrieval
+    const hybridResults = await hybridVectorRetriever.hybridSearch(message, {
+      limit: 5,
+      semanticWeight: 0.6,
+      bm25Weight: 0.4,
+      minSemanticSimilarity: 0.7
+    });
+    
+    const relevantKnowledge = hybridResults.map(result => {
+      return `[${result.category}] ${result.content} (Score: ${result.similarity?.toFixed(2) || 'N/A'}, Type: ${result.searchType})`;
+    }).join('\n\n');
+    
+    const combinedKnowledge = [envKnowledge, relevantKnowledge].filter(k => k).join('\n\n');
+    
+    // Format conversation history
+    let historyContext = '';
+    if (conversationHistory.length > 0) {
+      historyContext = '\n\nPREVIOUS CONVERSATION:\n';
+      conversationHistory.forEach((msg, i) => {
+        historyContext += `[${new Date(msg.timestamp).toLocaleString()}]\n`;
+        historyContext += `Customer: ${msg.customerMessage}\n`;
+        historyContext += `You: ${msg.botResponse}\n\n`;
+      });
+      historyContext += 'CURRENT MESSAGE:\n';
+    }
+    
+    // Enhanced status information for better customer service responses
+    let statusContext = '';
+    if (customerStatusInfo && customerStatusInfo.status) {
         const status = customerStatusInfo.status;
-        statusContext = `\n\nORDER STATUS INFORMATION:
+      statusContext = `\n\nORDER STATUS INFORMATION:
 - Current Status: ${status.label}
 - Priority Level: ${status.priority}
 - Recommended Action: ${status.action}
 - Status Color: ${customerStatusInfo.statusColor || 'N/A'}`;
-        
-        // Add specific guidance based on status
-        switch (status.status) {
-          case 'wants_cancel':
-            statusContext += '\n- IMPORTANT: Customer wants to cancel - handle with urgency and empathy';
-            break;
-          case 'important_antsy':
-            statusContext += '\n- IMPORTANT: Customer is anxious and calling frequently - provide reassurance and detailed updates';
-            break;
-          case 'call_for_update':
-            statusContext += '\n- NOTE: Customer needs an update - provide clear status information';
-            break;
-          case 'in_process':
-            statusContext += '\n- NOTE: Order is being processed - provide timeline if available';
-            break;
-          case 'shipped':
-            statusContext += '\n- NOTE: Order has shipped - provide tracking information if available';
-            break;
-        }
+      
+      // Add specific guidance based on status
+      switch (status.status) {
+        case 'wants_cancel':
+          statusContext += '\n- IMPORTANT: Customer wants to cancel - handle with urgency and empathy';
+          break;
+        case 'important_antsy':
+          statusContext += '\n- IMPORTANT: Customer is anxious and calling frequently - provide reassurance and detailed updates';
+          break;
+        case 'call_for_update':
+          statusContext += '\n- NOTE: Customer needs an update - provide clear status information';
+          break;
+        case 'in_process':
+          statusContext += '\n- NOTE: Order is being processed - provide timeline if available';
+          break;
+        case 'shipped':
+          statusContext += '\n- NOTE: Order has shipped - provide tracking information if available';
+          break;
       }
-
-      prompt = promptOptimizer.optimizePrompt({
-        personality,
-        combinedKnowledge,
-        customerInfo: { name, customerPhone, orderId, product, created, email, statusContext },
-        message,
-        conversationHistory: historyContext
-      });
-    } else {
-      // Get personality and knowledge from environment and uploaded files
-      const personality = personalityText || process.env.CLAUDE_PERSONALITY || "You are a helpful customer service representative";
-      const envKnowledge = process.env.CLAUDE_KNOWLEDGE || "";
-      
-      // Get optimized knowledge with advanced retrieval
-      const relevantKnowledge = knowledgeRetriever.getOptimizedKnowledge(message);
-      const combinedKnowledge = [envKnowledge, relevantKnowledge].filter(k => k).join('\n\n');
-      
-      // Format conversation history
-      let historyContext = '';
-      if (conversationHistory.length > 0) {
-        historyContext = '\n\nPREVIOUS CONVERSATION:\n';
-        conversationHistory.forEach((msg, i) => {
-          historyContext += `[${new Date(msg.timestamp).toLocaleString()}]\n`;
-          historyContext += `Customer: ${msg.customerMessage}\n`;
-          historyContext += `You: ${msg.botResponse}\n\n`;
-        });
-        historyContext += 'CURRENT MESSAGE:\n';
-      }
-      
-      prompt = promptOptimizer.optimizeGuestPrompt({
-        personality,
-        combinedKnowledge,
-        message,
-        conversationHistory: historyContext
-      });
     }
+
+    prompt = promptOptimizer.optimizePrompt({
+      personality,
+      combinedKnowledge,
+      customerInfo: { name, customerPhone, orderId, product, created, email, statusContext },
+      message,
+      conversationHistory: historyContext
+    });
 
     // Log prompt metrics
     const promptMetrics = promptOptimizer.getPromptMetrics(prompt);
@@ -760,25 +918,99 @@ app.post('/reply', async (req, res) => {
       queueStatus: claudeRateLimiter.getStatus()
     });
     
-    // Prepare customer info for optimized handler
+    // Prepare customer info for optimized handler - get statusContext from earlier
+    let finalStatusContext = '';
+    if (customer && customerStatusInfo && customerStatusInfo.status) {
+      const status = customerStatusInfo.status;
+      finalStatusContext = `\n\nORDER STATUS INFORMATION:
+- Current Status: ${status.label}
+- Priority Level: ${status.priority}
+- Recommended Action: ${status.action}
+- Status Color: ${customerStatusInfo.statusColor || 'N/A'}`;
+      
+      // Add specific guidance based on status
+      switch (status.status) {
+        case 'wants_cancel':
+          finalStatusContext += '\n- IMPORTANT: Customer wants to cancel - handle with urgency and empathy';
+          break;
+        case 'important_antsy':
+          finalStatusContext += '\n- IMPORTANT: Customer is anxious and calling frequently - provide reassurance and detailed updates';
+          break;
+        case 'call_for_update':
+          finalStatusContext += '\n- NOTE: Customer needs an update - provide clear status information';
+          break;
+        case 'in_process':
+          finalStatusContext += '\n- NOTE: Order is being processed - provide timeline if available';
+          break;
+        case 'shipped':
+          finalStatusContext += '\n- NOTE: Order has shipped - provide tracking information if available';
+          break;
+      }
+    }
+
     const customerInfo = customer ? {
       name: customer._rawData[2],
       orderId: customer._rawData[0],
-      product: customer._rawData[1]
+      product: customer._rawData[1],
+      email: customer._rawData[5],
+      statusContext: finalStatusContext,
+      conversationHistory: historyContext,
+      enhancedStatus: customerStatusInfo
     } : null;
     
     // Use optimized reply handler with all optimizations
+    // ENHANCED FEATURE 3: Get conversation context from graph
+    const conversationContext = await conversationGraph.getAssociativeContext(phone, message);
+    
+    const apiStartTime = Date.now();
     const result = await optimizedReplyHandler.processMessage(message, phone, customerInfo, anthropic);
     const reply = result.reply;
+    const apiResponseTime = Date.now() - apiStartTime;
     
-    logger.info('Claude API response received', { 
+    // Track API call
+    enterpriseMonitoring.trackAPICall('claude', apiResponseTime, true);
+    
+    // ENHANCED FEATURE 4: Cache the response
+    await multiTierCache.set(cacheKey, reply, 'conversation', 3600); // Cache for 1 hour
+    
+    // ENHANCED FEATURE 5: Store in conversation graph with metadata
+    await conversationGraph.addConversationNode(phone, message, [], reply, {
+      provider: result.provider || 'claude',
+      processingTime: Date.now() - startTime,
+      tokensUsed: result.tokensUsed || 0,
+      confidence: result.confidence || 0.8,
+      cacheHit: false
+    });
+    
+    logger.info('Enhanced AI response generated', { 
       phone,
-      replyLength: reply.length 
+      replyLength: reply.length,
+      processingTime: Date.now() - startTime,
+      provider: result.provider || 'claude',
+      hasContext: !!conversationContext
     });
     
     console.log(`Generated reply: ${reply}`);
     
+    // Store conversation in enterprise storage
+    await enterpriseChatStorage.storeMessage(phone, message, reply, {
+      customerInfo: customerInfo,
+      provider: result.provider || 'claude',
+      processingTime: Date.now() - startTime,
+      confidence: result.confidence || null,
+      tokensUsed: result.tokensUsed || null
+    });
+    
+    // Also log in old system for backward compatibility (during migration)
     logChatMessage(phone, message, reply, customerInfo);
+
+    // Track successful SMS response
+    enterpriseMonitoring.trackSMS('responded', { 
+      phone, 
+      provider: result.provider || 'claude', 
+      responseTime: Date.now() - startTime,
+      replyLength: reply.length
+    });
 
     // Push reply back to Tasker (if configured)
     if (process.env.TASKER_PUSH_URL) {
@@ -793,8 +1025,10 @@ app.post('/reply', async (req, res) => {
           })
         });
         console.log('Pushed reply to Tasker:', pushResponse.ok);
+        enterpriseMonitoring.info('SMS pushed to Tasker', { phone, success: pushResponse.ok });
       } catch (pushError) {
         console.error('Failed to push to Tasker:', pushError.message);
+        enterpriseMonitoring.error('Failed to push SMS to Tasker', pushError, { phone });
       }
     }
 
@@ -820,6 +1054,13 @@ app.post('/reply', async (req, res) => {
       status: error.status,
       type: error.type,
       stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+    
+    // Track error with enterprise monitoring
+    enterpriseMonitoring.error('SMS processing error', error, {
+      phone: req.body.phone,
+      messageLength: req.body.message?.length,
+      processingTime: Date.now() - startTime
     });
     
     res.status(500).json({ 
@@ -853,6 +1094,23 @@ app.get('/upload.html', (req, res) => {
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', message: 'Claude SMS Bot is running' });
+});
+
+// Enhanced system stats endpoint
+app.get('/stats', async (req, res) => {
+  try {
+    const stats = {
+      cache: multiTierCache.getHitRatio(),
+      conversationGraph: await conversationGraph.getGraphStats(),
+      intentRouter: intentRouter.getBypassStats(),
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString()
+    };
+    
+    res.json(stats);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Get customer info endpoint (for testing)
@@ -1782,6 +2040,193 @@ app.get('/admin/batch/active', requireAuth, (req, res) => {
   }
 });
 
+// Vector embeddings management endpoints
+app.get('/admin/vector/analytics', requireAuth, async (req, res) => {
+  try {
+    const analytics = await hybridVectorRetriever.getSearchAnalytics();
+    res.json({
+      success: true,
+      analytics
+    });
+  } catch (error) {
+    logger.error('Failed to get vector analytics', { error: error.message });
+    res.status(500).json({ error: 'Failed to get vector analytics' });
+  }
+});
+
+app.post('/admin/vector/rebuild-embeddings', requireAuth, async (req, res) => {
+  try {
+    logger.info('Starting bulk embedding rebuild', { 
+      ip: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('User-Agent')
+    });
+    
+    const result = await hybridVectorRetriever.updateAllEmbeddings();
+    
+    res.json({
+      success: true,
+      message: 'Embedding rebuild completed',
+      processed: result.processed,
+      errors: result.errors
+    });
+  } catch (error) {
+    logger.error('Failed to rebuild embeddings', { error: error.message });
+    res.status(500).json({ error: 'Failed to rebuild embeddings' });
+  }
+});
+
+app.get('/admin/vector/test-search', requireAuth, async (req, res) => {
+  try {
+    const { query = 'test query' } = req.query;
+    
+    const [semanticResults, bm25Results, hybridResults] = await Promise.all([
+      hybridVectorRetriever.semanticSearch(query, 3),
+      hybridVectorRetriever.bm25Search(query, 3),
+      hybridVectorRetriever.hybridSearch(query, { limit: 5 })
+    ]);
+    
+    res.json({
+      success: true,
+      query,
+      results: {
+        semantic: semanticResults,
+        bm25: bm25Results,
+        hybrid: hybridResults
+      }
+    });
+  } catch (error) {
+    logger.error('Failed to test search', { error: error.message });
+    res.status(500).json({ error: 'Failed to test search' });
+  }
+});
+
+// Enterprise monitoring endpoints
+app.get('/admin/monitoring/dashboard', requireAuth, (req, res) => {
+  try {
+    const dashboardData = enterpriseMonitoring.getDashboardData();
+    res.json({
+      success: true,
+      data: dashboardData
+    });
+  } catch (error) {
+    logger.error('Failed to get monitoring dashboard', { error: error.message });
+    res.status(500).json({ error: 'Failed to get monitoring dashboard' });
+  }
+});
+
+app.post('/admin/monitoring/alert', requireAuth, (req, res) => {
+  try {
+    const { message, severity = 'medium', metadata = {} } = req.body;
+    
+    enterpriseMonitoring.alert(`Admin alert: ${message}`, {
+      severity,
+      admin_triggered: true,
+      ip: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('User-Agent'),
+      ...metadata
+    });
+    
+    res.json({ success: true, message: 'Alert sent successfully' });
+  } catch (error) {
+    logger.error('Failed to send admin alert', { error: error.message });
+    res.status(500).json({ error: 'Failed to send alert' });
+  }
+});
+
+app.post('/admin/monitoring/reset-metrics', requireAuth, (req, res) => {
+  try {
+    enterpriseMonitoring.resetMetrics();
+    
+    logger.info('Monitoring metrics reset by admin', { 
+      ip: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('User-Agent')
+    });
+    
+    res.json({ success: true, message: 'Metrics reset successfully' });
+  } catch (error) {
+    logger.error('Failed to reset metrics', { error: error.message });
+    res.status(500).json({ error: 'Failed to reset metrics' });
+  }
+});
+
+// Enterprise chat storage management endpoints
+app.get('/admin/storage/stats', requireAuth, async (req, res) => {
+  try {
+    const stats = await enterpriseChatStorage.getStorageStats();
+    res.json({
+      success: true,
+      stats: stats
+    });
+  } catch (error) {
+    logger.error('Failed to get storage stats', { error: error.message });
+    res.status(500).json({ error: 'Failed to get storage stats' });
+  }
+});
+
+app.post('/admin/storage/migrate', requireAuth, async (req, res) => {
+  try {
+    const jsonFilePath = req.body.jsonFilePath || './chat_logs.json';
+    
+    logger.info('Starting chat storage migration', { 
+      file: jsonFilePath,
+      admin: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('User-Agent')
+    });
+    
+    const migratedCount = await enterpriseChatStorage.migrateFromJsonStorage(jsonFilePath);
+    
+    res.json({
+      success: true,
+      message: 'Migration completed successfully',
+      migratedMessages: migratedCount
+    });
+    
+  } catch (error) {
+    logger.error('Chat storage migration failed', { error: error.message });
+    res.status(500).json({ error: 'Migration failed: ' + error.message });
+  }
+});
+
+app.get('/admin/storage/conversations/:phone', requireAuth, async (req, res) => {
+  try {
+    const { phone } = req.params;
+    const limit = parseInt(req.query.limit) || 10;
+    
+    const conversations = await enterpriseChatStorage.getConversationHistory(phone, limit);
+    
+    res.json({
+      success: true,
+      phone: phone,
+      conversations: conversations,
+      count: conversations.length
+    });
+    
+  } catch (error) {
+    logger.error('Failed to get conversation history', { error: error.message });
+    res.status(500).json({ error: 'Failed to get conversation history' });
+  }
+});
+
+app.post('/admin/storage/archive', requireAuth, async (req, res) => {
+  try {
+    logger.info('Manual archive process started', { 
+      admin: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('User-Agent')
+    });
+    
+    await enterpriseChatStorage.archiveOldConversations();
+    
+    res.json({
+      success: true,
+      message: 'Archive process completed'
+    });
+    
+  } catch (error) {
+    logger.error('Manual archive failed', { error: error.message });
+    res.status(500).json({ error: 'Archive process failed' });
+  }
+});
+
 app.delete('/admin/logs', requireAuth, (req, res) => {
   try {
     const success = logger.clearLogs();
@@ -1800,15 +2245,39 @@ app.delete('/admin/logs', requireAuth, (req, res) => {
   }
 });
 
+// Initialize enterprise chat storage for distillation conversations
+let enterpriseChatStorage;
+
+async function initializeEnterpriseStorage() {
+  try {
+    enterpriseChatStorage = new EnterpriseChatStorage({
+      maxActiveConversations: 1000,
+      maxMessagesPerCustomer: 50,
+      archiveAfterDays: 30
+    });
+    
+    // Wait for initialization to complete
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    console.log('✅ Enterprise distillation chat storage ready');
+    
+  } catch (error) {
+    console.error('❌ Enterprise storage initialization failed:', error);
+    console.log('⚠️ Falling back to basic chat storage');
+  }
+}
+
 // Start server
 app.listen(port, async () => {
-  logger.success(`SMS Bot server started on port ${port}`);
-  loadChatLogs(); // Load existing chat logs
+  logger.success(`Jonathan's Distillation SMS Bot server started on port ${port}`);
+  
+  // Initialize core components
+  loadChatLogs(); // Load existing chat logs (fallback)
   await initializeGoogleSheets();
+  await initializeEnterpriseStorage(); // Add enterprise storage
   await testClaudeAPI();
   
   // Initial startup complete - automated sync will handle Shopify data
-  logger.info('Server initialization complete - automated Shopify sync will handle data updates');
+  logger.info('🥃 Jonathan\'s Distillation Bot initialization complete - ready to help with stills and spirits!');
 });
 
 module.exports = app;
