@@ -1004,22 +1004,24 @@ If you're interested in our copper stills and distillation equipment, check out 
       replyLength: reply.length
     });
 
-    // Push reply back to Tasker (if configured)
-    if (process.env.TASKER_PUSH_URL) {
+    // Send reply back to Tasker for SMS delivery
+    const taskerPushUrl = process.env.TASKER_PUSH_URL;
+    if (taskerPushUrl) {
       try {
-        const pushResponse = await fetch(process.env.TASKER_PUSH_URL, {
+        const pushResponse = await fetch(taskerPushUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json'
+          },
           body: JSON.stringify({
-            phone: phone,
+            phone,
             message: reply,
             action: 'send_sms'
           })
         });
-        console.log('Pushed reply to Tasker:', pushResponse.ok);
+
         enterpriseMonitoring.info('SMS pushed to Tasker', { phone, success: pushResponse.ok });
       } catch (pushError) {
-        console.error('Failed to push to Tasker:', pushError.message);
         enterpriseMonitoring.error('Failed to push SMS to Tasker', pushError, { phone });
       }
     }
