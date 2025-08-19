@@ -581,7 +581,7 @@ const enterpriseChatStorage = new EnterpriseChatStorage({
 
 // Enterprise monitoring
 const enterpriseMonitoring = new EnterpriseMonitoring({
-    serviceName: 'distillation-chat-bot',
+    serviceName: 'distillation-sms-bot',
     version: '1.0.0',
     environment: process.env.NODE_ENV || 'development',
     elasticsearch: {
@@ -721,62 +721,117 @@ async function findCustomerByPhone(phone) {
   }
 }
 
-// Main chat endpoint (removed SMS functionality)
-app.post('/api/chat', async (req, res) => {
+// Main SMS reply endpoint
+app.post('/reply', async (req, res) => {
   const startTime = Date.now();
   
   try {
-    const { message, sessionId = 'default' } = req.body;
+    const { phone, message, sender } = req.body;
     
-    if (!message) {
-      return res.status(400).json({ error: 'Message is required' });
+    if (!phone || !message) {
+      return res.status(400).json({ error: 'Phone and message are required' });
     }
 
-    logger.info(`Chat message received`, { 
-      sessionId,
+    logger.info(`SMS received from ${phone}`, { 
+      phone,
       message: message.substring(0, 100) + (message.length > 100 ? '...' : ''), // Truncate long messages
+      sender 
     });
 
-    // Track chat received
-    enterpriseMonitoring.trackEvent('chat_received', { sessionId, messageLength: message.length });
+    // Track SMS received
+    enterpriseMonitoring.trackSMS('received', { phone, messageLength: message.length, sender });
 
-    // Remove customer database check - this is now a general chat bot
+    // FIRST: Check if customer exists in database
+    const customer = await findCustomerByPhone(phone);
+    if (!customer) {
+      logger.info('Phone number not found in customer database - sending helpful response', { phone });
+      enterpriseMonitoring.info('Unknown customer contacted', { phone, reason: 'not_in_database' });
+      
+      // Send helpful response for unknown customers
+      const unknownCustomerResponse = `Hey there! I don't see this number in our customer database, but I'm happy to help! 
 
-    // ENHANCED FEATURE 1: Intent Routing (bypass AI for simple queries)
-    const intentResponse = await intentRouter.routeQuery(message, sessionId);
+If you've placed an order with American Copper Works, please call me at (603) 997-6786 or email tdnorders@gmail.com with your order details so I can look you up properly.
+
+If you're interested in our copper stills and distillation equipment, check out moonshinestills.com or give me a call - I love talking about the craft!`;
+
+      // Store this interaction
+      await enterpriseChatStorage.storeMessage(phone, message, unknownCustomerResponse, {
+        customerFound: false,
+        provider: 'unknown_customer_handler'
+      });
+
+      return res.json({ 
+        response: unknownCustomerResponse,
+        customerFound: false
+      });
+    }
+
+    // ENHANCED FEATURE 1: Intent Routing (bypass AI for simple queries) - ONLY for verified customers
+    const intentResponse = await intentRouter.routeQuery(message, phone);
     if (intentResponse) {
-      logger.info('Intent routing provided response', { sessionId, intent: 'detected' });
+      logger.info('Intent routing provided response', { phone, intent: 'detected' });
       enterpriseMonitoring.trackCacheOperation('intent_router', true);
       
       // Store in conversation graph
-      await conversationGraph.addConversationNode(sessionId, message, [], intentResponse, {
+      await conversationGraph.addConversationNode(phone, message, [], intentResponse, {
         provider: 'intent_router',
         processingTime: Date.now() - startTime,
         cacheHit: true
       });
       
-      // Track successful chat response
-      enterpriseMonitoring.trackEvent('chat_responded', { sessionId, provider: 'intent_router', responseTime: Date.now() - startTime });
+      // Track successful SMS response
+      enterpriseMonitoring.trackSMS('responded', { phone, provider: 'intent_router', responseTime: Date.now() - startTime });
       
       return res.json({ response: intentResponse });
     }
 
     // ENHANCED FEATURE 2: Multi-tier cache check
-    const cacheKey = `${sessionId}:${message}`;
+    const cacheKey = `${phone}:${message}`;
     const cachedResponse = await multiTierCache.get(cacheKey, 'conversation');
     if (cachedResponse) {
-      logger.info('Cache hit - serving cached response', { sessionId });
+      logger.info('Cache hit - serving cached response', { phone });
       enterpriseMonitoring.trackCacheOperation('multi_tier_cache', true);
-      enterpriseMonitoring.trackEvent('chat_responded', { sessionId, provider: 'cache', responseTime: Date.now() - startTime });
+      enterpriseMonitoring.trackSMS('responded', { phone, provider: 'cache', responseTime: Date.now() - startTime });
       return res.json({ response: cachedResponse });
     }
     
     enterpriseMonitoring.trackCacheOperation('multi_tier_cache', false);
     
     // Get conversation history for context using enterprise storage
-    const conversationHistory = await enterpriseChatStorage.getConversationHistory(sessionId, 5); // Last 5 messages
+    const conversationHistory = await enterpriseChatStorage.getConversationHistory(phone, 5); // Last 5 messages
     
-    // Simplified chat bot - no customer lookup needed
+    // Process customer (we know customer exists due to early return above)
+    // Map data based on your sheet structure
+    const name = customer._rawData[2] || customer.shipping_name || 'N/A';
+    const orderId = customer._rawData[0] || 'N/A';
+    const product = customer._rawData[1] || 'N/A';
+    const email = customer._rawData[5] || 'N/A';
+    const customerPhone = customer._rawData[6] || 'N/A';
+    const created = customer._rawData[3] || 'N/A';
+    
+    // Try to get enhanced status information using color-based detection
+    let customerStatusInfo = null;
+    try {
+        if (enhancedSheetsService.enabled) {
+          console.log(`🔍 Looking up enhanced status for original phone: ${phone}, customer phone: ${customerPhone}`);
+          const sheetData = await enhancedSheetsService.getSheetWithOrderStatus();
+          // Try original phone first, then customer phone from database
+          let customerStatus = enhancedSheetsService.findCustomerStatus(sheetData, phone);
+          if (!customerStatus) {
+            customerStatus = enhancedSheetsService.findCustomerStatus(sheetData, customerPhone);
+          }
+          if (customerStatus) {
+            customerStatusInfo = customerStatus;
+            console.log(`✅ Enhanced status found:`, customerStatus.status);
+          } else {
+            console.log(`❌ No enhanced status found for phone: ${phone}`);
+          }
+        } else {
+          console.log('❌ Enhanced sheets service not enabled');
+        }
+    } catch (statusError) {
+      console.error('Enhanced status lookup failed:', statusError.message);
+    }
     
     // Get personality and knowledge from environment and uploaded files
     const personality = personalityText || process.env.CLAUDE_PERSONALITY || "You are Jonathan from American Copper Works, expert in alcohol distillation and copper stills";
@@ -802,16 +857,46 @@ app.post('/api/chat', async (req, res) => {
       historyContext = '\n\nPREVIOUS CONVERSATION:\n';
       conversationHistory.forEach((msg, i) => {
         historyContext += `[${new Date(msg.timestamp).toLocaleString()}]\n`;
-        historyContext += `User: ${msg.customerMessage}\n`;
-        historyContext += `Jonathan: ${msg.botResponse}\n\n`;
+        historyContext += `Customer: ${msg.customerMessage}\n`;
+        historyContext += `You: ${msg.botResponse}\n\n`;
       });
       historyContext += 'CURRENT MESSAGE:\n';
+    }
+    
+    // Enhanced status information for better customer service responses
+    let statusContext = '';
+    if (customerStatusInfo && customerStatusInfo.status) {
+        const status = customerStatusInfo.status;
+      statusContext = `\n\nORDER STATUS INFORMATION:
+- Current Status: ${status.label}
+- Priority Level: ${status.priority}
+- Recommended Action: ${status.action}
+- Status Color: ${customerStatusInfo.statusColor || 'N/A'}`;
+      
+      // Add specific guidance based on status
+      switch (status.status) {
+        case 'wants_cancel':
+          statusContext += '\n- IMPORTANT: Customer wants to cancel - handle with urgency and empathy';
+          break;
+        case 'important_antsy':
+          statusContext += '\n- IMPORTANT: Customer is anxious and calling frequently - provide reassurance and detailed updates';
+          break;
+        case 'call_for_update':
+          statusContext += '\n- NOTE: Customer needs an update - provide clear status information';
+          break;
+        case 'in_process':
+          statusContext += '\n- NOTE: Order is being processed - provide timeline if available';
+          break;
+        case 'shipped':
+          statusContext += '\n- NOTE: Order has shipped - provide tracking information if available';
+          break;
+      }
     }
 
     prompt = promptOptimizer.optimizePrompt({
       personality,
       combinedKnowledge,
-      customerInfo: null, // No customer info needed
+      customerInfo: { name, customerPhone, orderId, product, created, email, statusContext },
       message,
       conversationHistory: historyContext
     });
@@ -819,18 +904,58 @@ app.post('/api/chat', async (req, res) => {
     // Log prompt metrics
     const promptMetrics = promptOptimizer.getPromptMetrics(prompt);
     logger.info('Sending request to Claude API', { 
-      sessionId,
+      phone,
       messageLength: message.length,
       promptMetrics,
       queueStatus: claudeRateLimiter.getStatus()
     });
     
+    // Prepare customer info for optimized handler
+    let finalStatusContext = '';
+    if (customer && customerStatusInfo && customerStatusInfo.status) {
+      const status = customerStatusInfo.status;
+      finalStatusContext = `\n\nORDER STATUS INFORMATION:
+- Current Status: ${status.label}
+- Priority Level: ${status.priority}
+- Recommended Action: ${status.action}
+- Status Color: ${customerStatusInfo.statusColor || 'N/A'}`;
+      
+      // Add specific guidance based on status
+      switch (status.status) {
+        case 'wants_cancel':
+          finalStatusContext += '\n- IMPORTANT: Customer wants to cancel - handle with urgency and empathy';
+          break;
+        case 'important_antsy':
+          finalStatusContext += '\n- IMPORTANT: Customer is anxious and calling frequently - provide reassurance and detailed updates';
+          break;
+        case 'call_for_update':
+          finalStatusContext += '\n- NOTE: Customer needs an update - provide clear status information';
+          break;
+        case 'in_process':
+          finalStatusContext += '\n- NOTE: Order is being processed - provide timeline if available';
+          break;
+        case 'shipped':
+          finalStatusContext += '\n- NOTE: Order has shipped - provide tracking information if available';
+          break;
+      }
+    }
+
+    const customerInfo = customer ? {
+      name: customer._rawData[2],
+      orderId: customer._rawData[0],
+      product: customer._rawData[1],
+      email: customer._rawData[5],
+      statusContext: finalStatusContext,
+      conversationHistory: historyContext,
+      enhancedStatus: customerStatusInfo
+    } : null;
+    
     // Use optimized reply handler with all optimizations
     // ENHANCED FEATURE 3: Get conversation context from graph
-    const conversationContext = await conversationGraph.getAssociativeContext(sessionId, message);
+    const conversationContext = await conversationGraph.getAssociativeContext(phone, message);
     
     const apiStartTime = Date.now();
-    const result = await optimizedReplyHandler.processMessage(message, sessionId, null, anthropic);
+    const result = await optimizedReplyHandler.processMessage(message, phone, customerInfo, anthropic);
     const reply = result.reply;
     const apiResponseTime = Date.now() - apiStartTime;
     
@@ -841,7 +966,7 @@ app.post('/api/chat', async (req, res) => {
     await multiTierCache.set(cacheKey, reply, 'conversation', 3600); // Cache for 1 hour
     
     // ENHANCED FEATURE 5: Store in conversation graph with metadata
-    await conversationGraph.addConversationNode(sessionId, message, [], reply, {
+    await conversationGraph.addConversationNode(phone, message, [], reply, {
       provider: result.provider || 'claude',
       processingTime: Date.now() - startTime,
       tokensUsed: result.tokensUsed || 0,
@@ -850,7 +975,7 @@ app.post('/api/chat', async (req, res) => {
     });
     
     logger.info('Enhanced AI response generated', { 
-      sessionId,
+      phone,
       replyLength: reply.length,
       processingTime: Date.now() - startTime,
       provider: result.provider || 'claude',
@@ -860,29 +985,63 @@ app.post('/api/chat', async (req, res) => {
     console.log(`Generated reply: ${reply}`);
     
     // Store conversation in enterprise storage
-    await enterpriseChatStorage.storeMessage(sessionId, message, reply, {
+    await enterpriseChatStorage.storeMessage(phone, message, reply, {
+      customerInfo: customerInfo,
       provider: result.provider || 'claude',
       processingTime: Date.now() - startTime,
       confidence: result.confidence || null,
       tokensUsed: result.tokensUsed || null
     });
     
-    // Track successful chat response
-    enterpriseMonitoring.trackEvent('chat_responded', { 
-      sessionId, 
+    // Also log in old system for backward compatibility (during migration)
+    logChatMessage(phone, message, reply, customerInfo);
+
+    // Track successful SMS response
+    enterpriseMonitoring.trackSMS('responded', { 
+      phone, 
       provider: result.provider || 'claude', 
       responseTime: Date.now() - startTime,
       replyLength: reply.length
     });
 
+    // Push reply back to Tasker (if configured)
+    if (process.env.TASKER_PUSH_URL) {
+      try {
+        const pushResponse = await fetch(process.env.TASKER_PUSH_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            phone: phone,
+            message: reply,
+            action: 'send_sms'
+          })
+        });
+        console.log('Pushed reply to Tasker:', pushResponse.ok);
+        enterpriseMonitoring.info('SMS pushed to Tasker', { phone, success: pushResponse.ok });
+      } catch (pushError) {
+        console.error('Failed to push to Tasker:', pushError.message);
+        enterpriseMonitoring.error('Failed to push SMS to Tasker', pushError, { phone });
+      }
+    }
+
     res.json({ 
       reply: reply,
-      sessionId: sessionId
+      customerFound: !!customer,
+      customerInfo: customer ? {
+        name: customer._rawData[2],
+        orderId: customer._rawData[0],
+        product: customer._rawData[1],
+        enhancedStatus: customerStatusInfo ? {
+          status: customerStatusInfo.status,
+          statusColor: customerStatusInfo.statusColor,
+          rowNumber: customerStatusInfo.rowNumber
+        } : null
+      } : null
     });
 
   } catch (error) {
-    logger.error('Error processing chat request', {
-      sessionId: req.body.sessionId,
+    logger.error('Error processing SMS reply request', {
+      phone: req.body.phone,
       error: error.message,
       status: error.status,
       type: error.type,
@@ -890,8 +1049,8 @@ app.post('/api/chat', async (req, res) => {
     });
     
     // Track error with enterprise monitoring
-    enterpriseMonitoring.error('Chat processing error', error, {
-      sessionId: req.body.sessionId,
+    enterpriseMonitoring.error('SMS processing error', error, {
+      phone: req.body.phone,
       messageLength: req.body.message?.length,
       processingTime: Date.now() - startTime
     });
@@ -926,7 +1085,7 @@ app.get('/upload.html', (req, res) => {
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.json({ status: 'OK', message: 'Jonathan\'s Distillation Chat Bot is running' });
+  res.json({ status: 'OK', message: 'Jonathan\'s Distillation SMS Bot is running' });
 });
 
 // Enhanced system stats endpoint
@@ -2101,7 +2260,7 @@ async function initializeEnterpriseStorage() {
 
 // Start server
 app.listen(port, async () => {
-  logger.success(`Jonathan's Distillation Chat Bot server started on port ${port}`);
+  logger.success(`Jonathan's Distillation SMS Bot server started on port ${port}`);
   
   // Initialize core components
   loadChatLogs(); // Load existing chat logs (fallback)
