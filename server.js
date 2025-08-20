@@ -683,14 +683,14 @@ async function findCustomerByPhone(phone) {
   try {
     const sheet = doc.sheetsByIndex[0]; // Use first sheet
     
-    // Add 8-second timeout to Google Sheets API call
+    // Add 3-second timeout to Google Sheets API call for faster debugging
     console.log(`🔍 Fetching customer data from Google Sheets for: ${phone}`);
     const startTime = Date.now();
     
     const rows = await Promise.race([
       sheet.getRows(),
       new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Google Sheets timeout after 8 seconds')), 8000)
+        setTimeout(() => reject(new Error('Google Sheets timeout after 3 seconds')), 3000)
       )
     ]);
     
