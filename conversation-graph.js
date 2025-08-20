@@ -6,24 +6,36 @@ class ConversationGraph {
     constructor() {
         this.graph = new Map(); // In-memory graph for active sessions
         
-        // Redis for distributed memory across instances
-        this.redis = redis.createClient({
-            host: 'localhost',
-            port: 6379
-        });
+        // Redis for distributed memory (use REDIS_URL on production)
+        if (process.env.REDIS_URL) {
+            this.redis = redis.createClient({
+                url: process.env.REDIS_URL
+            });
+        } else {
+            this.redis = redis.createClient({
+                host: 'localhost',
+                port: 6379
+            });
+        }
         
-        // MySQL for persistent conversation history
-        this.dbPool = mysql.createPool({
-            host: '127.0.0.1',
-            port: 3306,
-            user: 'sms_bot', 
-            password: 'smsbot123',
-            database: 'sms_bot_production',
-            waitForConnections: true,
-            connectionLimit: 5,
-            acquireTimeout: 60000,
-            timeout: 60000
-        });
+        // Skip MySQL in production - use enterprise PostgreSQL storage instead
+        if (process.env.DATABASE_URL) {
+            console.log('🎯 Using PostgreSQL enterprise storage, skipping local MySQL');
+            this.dbPool = null;
+        } else {
+            // MySQL for local development only
+            this.dbPool = mysql.createPool({
+                host: '127.0.0.1',
+                port: 3306,
+                user: 'sms_bot', 
+                password: 'smsbot123',
+                database: 'sms_bot_production',
+                waitForConnections: true,
+                connectionLimit: 5,
+                acquireTimeout: 60000,
+                timeout: 60000
+            });
+        }
 
         this.initialize();
     }
@@ -235,6 +247,17 @@ class ConversationGraph {
 
     async getGraphStats() {
         try {
+            // Skip database operations if no MySQL pool available (using PostgreSQL instead)
+            if (!this.dbPool) {
+                return {
+                    activeCustomers: this.graph.size,
+                    redisConnected: this.redis?.isReady || false,
+                    dbStats: { note: 'Using PostgreSQL Enterprise Storage instead' },
+                    cacheHitRatio: 'Not implemented yet',
+                    storage: 'PostgreSQL Enterprise Storage'
+                };
+            }
+            
             const [result] = await this.dbPool.execute(`
                 SELECT 
                     COUNT(DISTINCT phone_hash) as unique_customers,
@@ -259,8 +282,12 @@ class ConversationGraph {
 
     async close() {
         try {
-            await this.redis.quit();
-            await this.dbPool.end();
+            if (this.redis) {
+                await this.redis.quit();
+            }
+            if (this.dbPool) {
+                await this.dbPool.end();
+            }
         } catch (error) {
             logger.error('Close error:', error.message);
         }
