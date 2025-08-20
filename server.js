@@ -612,15 +612,39 @@ async function initializeGoogleSheets() {
       client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
       private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
     };
-    await doc.useServiceAccountAuth(creds);
-    await doc.loadInfo();
-    console.log('Google Sheets connected successfully');
-    console.log('Sheet title:', doc.title);
+    
+    console.log('🔐 Authenticating with Google Sheets...');
+    
+    // Add timeout to Google Sheets initialization
+    await Promise.race([
+      (async () => {
+        await doc.useServiceAccountAuth(creds);
+        await doc.loadInfo();
+      })(),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Google Sheets initialization timeout after 10 seconds')), 10000)
+      )
+    ]);
+    
+    console.log('✅ Google Sheets connected successfully');
+    console.log('📊 Sheet title:', doc.title);
+    console.log('📋 Sheet ID:', process.env.GOOGLE_SHEET_ID);
+    
   } catch (error) {
-    console.error('Failed to connect to Google Sheets:', error.message);
-    console.log('Make sure your sheet is shared with:', process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL);
+    console.error('❌ Failed to connect to Google Sheets:', error.message);
+    console.log('🔍 Troubleshooting checklist:');
+    console.log('  1. Sheet shared with:', process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL);
+    console.log('  2. Service account key valid?');
+    console.log('  3. Sheet ID correct?', process.env.GOOGLE_SHEET_ID);
+    
+    // Don't throw - allow service to start without sheets
+    console.log('⚠️  Service will continue without Google Sheets integration');
   }
 }
+
+// Add customer cache to avoid repeated Google Sheets calls
+const customerCache = new Map();
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 // Helper function to normalize phone numbers
 function normalizePhoneNumber(phone) {
@@ -646,12 +670,33 @@ function normalizePhoneNumber(phone) {
 
 // Helper function to find customer by phone
 async function findCustomerByPhone(phone) {
+  const normalizedInputPhone = normalizePhoneNumber(phone);
+  const cacheKey = `customer_${normalizedInputPhone}`;
+  
+  // Check cache first
+  const cached = customerCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+    console.log(`📋 Cache hit for phone: ${phone}`);
+    return cached.customer;
+  }
+  
   try {
     const sheet = doc.sheetsByIndex[0]; // Use first sheet
-    const rows = await sheet.getRows();
+    
+    // Add 8-second timeout to Google Sheets API call
+    console.log(`🔍 Fetching customer data from Google Sheets for: ${phone}`);
+    const startTime = Date.now();
+    
+    const rows = await Promise.race([
+      sheet.getRows(),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Google Sheets timeout after 8 seconds')), 8000)
+      )
+    ]);
+    
+    console.log(`📊 Google Sheets fetch completed in ${Date.now() - startTime}ms (${rows.length} rows)`);
     
     // Normalize the input phone number
-    const normalizedInputPhone = normalizePhoneNumber(phone);
     
     console.log(`🔍 Looking for phone: ${phone} -> normalized: ${normalizedInputPhone}`);
     
@@ -713,10 +758,23 @@ async function findCustomerByPhone(phone) {
       });
     }
     
+    // Cache the result (both found and not found)
+    customerCache.set(cacheKey, {
+      customer: foundCustomer,
+      timestamp: Date.now()
+    });
+    
     return foundCustomer;
     
   } catch (error) {
-    console.error('Error finding customer:', error);
+    console.error('Error finding customer (Google Sheets API):', error.message);
+    
+    // Cache null result for 1 minute to avoid repeated failures
+    customerCache.set(cacheKey, {
+      customer: null,
+      timestamp: Date.now()
+    });
+    
     return null;
   }
 }
