@@ -63,7 +63,8 @@ CACHE_TIER_5MIN
         // 2. Current product knowledge (semi-stable, changes less frequently) 
         // 3. Dynamic customer context (changes per request)
         
-        let prompt = this.stableSystemContent;
+        // Use dashboard-managed personality if provided, otherwise fallback to hard-coded
+        let prompt = personality || this.stableSystemContent;
         
         // Add current knowledge (place at top per "lost in the middle" research)
         if (combinedKnowledge) {
@@ -98,7 +99,8 @@ CACHE_TIER_5MIN
     
     // For customers without order info
     optimizeGuestPrompt({ personality, combinedKnowledge, message, conversationHistory }) {
-        let prompt = this.stableSystemContent;
+        // Use dashboard-managed personality if provided, otherwise fallback to hard-coded
+        let prompt = personality || this.stableSystemContent;
         
         if (combinedKnowledge) {
             prompt += `\n\nCURRENT CONTEXT:\n${combinedKnowledge}\n`;
