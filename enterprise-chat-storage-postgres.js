@@ -15,7 +15,7 @@ class EnterpriseChatStoragePostgres {
                 ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
                 max: 20,
                 idleTimeoutMillis: 30000,
-                connectionTimeoutMillis: 2000,
+                connectionTimeoutMillis: 10000,
             },
             
             // Redis configuration (from Render REDIS_URL)

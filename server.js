@@ -892,7 +892,7 @@ app.post('/reply', async (req, res) => {
       conversationHistory = await Promise.race([
         enterpriseChatStorage.getConversationHistory(phone, 5),
         new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Enterprise storage timeout')), 3000)
+          setTimeout(() => reject(new Error('Enterprise storage timeout')), 12000)
         )
       ]);
       console.log(`📚 Retrieved ${conversationHistory.length} messages from enterprise storage`);
@@ -1103,7 +1103,7 @@ app.post('/reply', async (req, res) => {
           tokensUsed: result.tokensUsed || null
         }),
         new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Enterprise storage timeout')), 3000)
+          setTimeout(() => reject(new Error('Enterprise storage timeout')), 12000)
         )
       ]);
       console.log(`✅ Conversation stored in enterprise storage`);
