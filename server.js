@@ -887,21 +887,16 @@ app.post('/reply', async (req, res) => {
       conversationHistory = getConversationHistory(phone, 5); // Fallback to local storage
     }
     
-    // Process customer (we know customer exists due to early return above)
-    // Map data based on your sheet structure
-    const name = customer._rawData[2] || customer.shipping_name || 'N/A';
-    const orderId = customer._rawData[0] || 'N/A';
-    const product = customer._rawData[1] || 'N/A';
-    const email = customer._rawData[5] || 'N/A';
-    const customerPhone = customer._rawData[6] || 'N/A';
-    const created = customer._rawData[3] || 'N/A';
+    // Use the existing processIncomingSMS function for message processing
+    const result = await processIncomingSMS(phone, message, 'twilio');
     
-    // TEMPORARY: Skip enhanced status lookup to prevent hanging
-    let customerStatusInfo = null;
-    console.log(`⚡ Skipping enhanced status lookup for faster response`);
-    
-    // Get personality and knowledge from environment and uploaded files
-    const defaultPersonality = `You are Jonathan Zajac - a cool, laid-back guy who runs American Copper Works, making quality copper moonshine stills and distillation equipment. You're friendly, down-to-earth, and approachable - not some corporate customer service bot.
+    // Respond with the processed message
+    res.json({
+      reply: result.message,
+      customerFound: !!customer,
+      customerInfo: result.customerInfo,
+      context: result.context
+    });
 
 IMPORTANT: You can chat about anything! You're a real person who happens to run a copper still business.
 
