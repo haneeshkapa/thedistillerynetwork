@@ -8,24 +8,36 @@ class MultiTierCache {
         this.l1Cache = new Map();
         this.l1MaxSize = 1000;
         
-        // L2: Redis cache (fast, larger size)
-        this.redis = redis.createClient({
-            host: 'localhost',
-            port: 6379
-        });
+        // L2: Redis cache (use REDIS_URL on production)
+        if (process.env.REDIS_URL) {
+            this.redis = redis.createClient({
+                url: process.env.REDIS_URL
+            });
+        } else {
+            this.redis = redis.createClient({
+                host: 'localhost',
+                port: 6379
+            });
+        }
         
-        // L3: Database cache (persistent)
-        this.dbPool = mysql.createPool({
-            host: '127.0.0.1',
-            port: 3306,
-            user: 'sms_bot',
-            password: 'smsbot123',
-            database: 'sms_bot_production',
-            waitForConnections: true,
-            connectionLimit: 5,
-            acquireTimeout: 60000,
-            timeout: 60000
-        });
+        // L3: Skip MySQL in production - use enterprise PostgreSQL storage instead
+        if (process.env.DATABASE_URL) {
+            console.log('🎯 Multi-tier cache: Using PostgreSQL enterprise storage, skipping local MySQL');
+            this.dbPool = null;
+        } else {
+            // MySQL for local development only
+            this.dbPool = mysql.createPool({
+                host: '127.0.0.1',
+                port: 3306,
+                user: 'sms_bot',
+                password: 'smsbot123',
+                database: 'sms_bot_production',
+                waitForConnections: true,
+                connectionLimit: 5,
+                acquireTimeout: 60000,
+                timeout: 60000
+            });
+        }
         
         this.hitStats = { l1: 0, l2: 0, l3: 0, miss: 0 };
         this.initialize();
@@ -57,8 +69,8 @@ class MultiTierCache {
                 return data;
             }
 
-            // Try L3 (Database) for conversations
-            if (type === 'conversation') {
+            // Try L3 (Database) for conversations - skip if no MySQL pool (using PostgreSQL)
+            if (type === 'conversation' && this.dbPool) {
                 const [rows] = await this.dbPool.execute(
                     'SELECT response FROM conversations WHERE phone_hash = ? AND message = ? ORDER BY created_at DESC LIMIT 1',
                     [this.hashPhone(key.split(':')[0]), key.split(':')[1]]
@@ -127,8 +139,12 @@ class MultiTierCache {
 
     async close() {
         try {
-            await this.redis.quit();
-            await this.dbPool.end();
+            if (this.redis) {
+                await this.redis.quit();
+            }
+            if (this.dbPool) {
+                await this.dbPool.end();
+            }
         } catch (error) {
             logger.error('Cache close error:', error.message);
         }

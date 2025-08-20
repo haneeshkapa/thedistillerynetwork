@@ -5,16 +5,22 @@ const logger = require('./logger');
 
 class HybridVectorRetriever {
     constructor() {
-        // Database connection
-        this.dbPool = mysql.createPool({
-            host: '127.0.0.1',
-            port: 3306,
-            user: 'sms_bot',
-            password: 'smsbot123',
-            database: 'sms_bot_production',
-            waitForConnections: true,
-            connectionLimit: 10
-        });
+        // Skip MySQL in production - use PostgreSQL enterprise storage instead
+        if (process.env.DATABASE_URL) {
+            console.log('🎯 Hybrid Vector Retriever: Using PostgreSQL enterprise storage, skipping local MySQL');
+            this.dbPool = null;
+        } else {
+            // Database connection for local development only
+            this.dbPool = mysql.createPool({
+                host: '127.0.0.1',
+                port: 3306,
+                user: 'sms_bot',
+                password: 'smsbot123',
+                database: 'sms_bot_production',
+                waitForConnections: true,
+                connectionLimit: 10
+            });
+        }
 
         // Redis for embedding cache
         this.redis = redis.createClient({
@@ -94,6 +100,12 @@ class HybridVectorRetriever {
      */
     async storeEmbedding(chunkId, text) {
         try {
+            // Skip database operations if no MySQL pool available (using PostgreSQL instead)
+            if (!this.dbPool) {
+                console.log('📊 Skipping MySQL embedding storage - using PostgreSQL enterprise storage');
+                return false;
+            }
+            
             const embedding = await this.generateEmbedding(text);
             const embeddingBuffer = Buffer.from(new Float32Array(embedding).buffer);
 
@@ -147,6 +159,12 @@ class HybridVectorRetriever {
      */
     async semanticSearch(query, limit = 10) {
         try {
+            // Skip semantic search if no MySQL pool available (using PostgreSQL instead)
+            if (!this.dbPool) {
+                console.log('📊 Skipping MySQL semantic search - using PostgreSQL enterprise storage');
+                return [];
+            }
+            
             const queryEmbedding = await this.generateEmbedding(query);
             const queryBuffer = Buffer.from(new Float32Array(queryEmbedding).buffer);
 
@@ -210,6 +228,12 @@ class HybridVectorRetriever {
      */
     async bm25Search(query, limit = 10) {
         try {
+            // Skip BM25 search if no MySQL pool available (using PostgreSQL instead)
+            if (!this.dbPool) {
+                console.log('📊 Skipping MySQL BM25 search - using PostgreSQL enterprise storage');
+                return [];
+            }
+            
             const searchTerms = query.toLowerCase().split(/\s+/).filter(term => term.length > 2);
             
             if (searchTerms.length === 0) {
@@ -385,6 +409,12 @@ class HybridVectorRetriever {
      */
     async storeSearchPerformance(metrics) {
         try {
+            // Skip database operations if no MySQL pool available (using PostgreSQL instead)
+            if (!this.dbPool) {
+                console.log('📊 Skipping MySQL performance storage - using PostgreSQL enterprise storage');
+                return;
+            }
+            
             await this.dbPool.execute(`
                 INSERT INTO search_performance 
                 (query, bm25_results, semantic_results, final_results, response_time_ms, cache_hit)
@@ -407,6 +437,12 @@ class HybridVectorRetriever {
      */
     async updateAllEmbeddings() {
         try {
+            // Skip database operations if no MySQL pool available (using PostgreSQL instead)
+            if (!this.dbPool) {
+                console.log('📊 Skipping MySQL bulk embedding update - using PostgreSQL enterprise storage');
+                return { processed: 0, errors: 0, note: 'MySQL not available in production' };
+            }
+            
             const [chunks] = await this.dbPool.execute(`
                 SELECT id, content FROM knowledge_chunks 
                 WHERE LENGTH(content) > 10
@@ -450,6 +486,19 @@ class HybridVectorRetriever {
      */
     async getSearchAnalytics(days = 7) {
         try {
+            // Skip database operations if no MySQL pool available (using PostgreSQL instead)
+            if (!this.dbPool) {
+                return {
+                    note: 'Using PostgreSQL Enterprise Storage instead',
+                    storage: 'PostgreSQL Enterprise Storage',
+                    total_searches: 'Not available',
+                    avg_response_time: 'Not available',
+                    cache_hits: 'Not available',
+                    cacheHitRatio: 'Not available',
+                    topQueries: []
+                };
+            }
+            
             const [results] = await this.dbPool.execute(`
                 SELECT 
                     COUNT(*) as total_searches,
@@ -487,7 +536,9 @@ class HybridVectorRetriever {
     async close() {
         try {
             await this.redis.quit();
-            await this.dbPool.end();
+            if (this.dbPool) {
+                await this.dbPool.end();
+            }
         } catch (error) {
             logger.error('Close error:', error.message);
         }

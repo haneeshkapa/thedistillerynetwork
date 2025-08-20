@@ -52,8 +52,14 @@ class EnterpriseChatStorage {
 
     async initialize() {
         try {
-            // Initialize database pool
-            this.dbPool = mysql.createPool(this.config.mysql);
+            // Skip MySQL in production - use PostgreSQL enterprise storage instead
+            if (process.env.DATABASE_URL) {
+                console.log('🎯 Enterprise Chat Storage: Using PostgreSQL enterprise storage, skipping local MySQL');
+                this.dbPool = null;
+            } else {
+                // Initialize database pool for local development only
+                this.dbPool = mysql.createPool(this.config.mysql);
+            }
             
             // Initialize Redis
             this.redis = redis.createClient({
@@ -189,6 +195,12 @@ class EnterpriseChatStorage {
      */
     async storeInDatabase(phoneHash, phone, message, response, metadata, timestamp) {
         try {
+            // Skip database operations if no MySQL pool available (using PostgreSQL instead)
+            if (!this.dbPool) {
+                console.log('📊 Skipping MySQL storage - using PostgreSQL enterprise storage');
+                return null;
+            }
+            
             const [result] = await this.dbPool.execute(`
                 INSERT INTO enterprise_conversations 
                 (phone_hash, phone_original, message, response, metadata, created_at, processing_time_ms, tokens_used, provider, confidence_score)
@@ -223,6 +235,12 @@ class EnterpriseChatStorage {
      */
     async loadActiveConversations() {
         try {
+            // Skip database operations if no MySQL pool available (using PostgreSQL instead)
+            if (!this.dbPool) {
+                console.log('📊 Skipping MySQL active conversations load - using PostgreSQL enterprise storage');
+                return;
+            }
+            
             // Get customers with recent activity (last 7 days)
             const [recentCustomers] = await this.dbPool.execute(`
                 SELECT DISTINCT phone_original, phone_hash, MAX(created_at) as last_activity
@@ -481,6 +499,11 @@ class EnterpriseChatStorage {
      */
     async loadFromDatabase(phoneHash, limit = 10) {
         try {
+            // Skip database operations if no MySQL pool available (using PostgreSQL instead)
+            if (!this.dbPool) {
+                return [];
+            }
+            
             const [rows] = await this.dbPool.execute(`
                 SELECT message, response, created_at, metadata, confidence_score
                 FROM enterprise_conversations
@@ -508,6 +531,19 @@ class EnterpriseChatStorage {
      */
     async getStorageStats() {
         try {
+            // Skip database operations if no MySQL pool available (using PostgreSQL instead)
+            if (!this.dbPool) {
+                return {
+                    database: { note: 'Using PostgreSQL Enterprise Storage instead' },
+                    activeConversations: this.activeConversations.size,
+                    maxActiveConversations: this.config.maxActiveConversations,
+                    storage: 'PostgreSQL Enterprise Storage',
+                    redisMemoryUsage: 'Not available',
+                    cacheHitRatio: 'Not implemented',
+                    archiveThreshold: this.config.archiveAfterDays
+                };
+            }
+            
             const [dbStats] = await this.dbPool.execute(`
                 SELECT 
                     COUNT(*) as total_conversations,
