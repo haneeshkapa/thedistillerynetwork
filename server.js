@@ -1204,6 +1204,30 @@ app.get('/tasker/sms', (req, res) => {
   });
 });
 
+// Simple test endpoint for Tasker SMS integration
+app.post('/tasker/test', async (req, res) => {
+  const { phone, message } = req.body;
+  
+  if (!phone || !message) {
+    return res.status(400).json({ 
+      error: 'Phone and message are required',
+      required: ['phone', 'message']
+    });
+  }
+  
+  // Simple test response
+  const testResponse = `Hello! I received your message: "${message}". This is a test response from your SMS bot. The advanced AI processing is being worked on.`;
+  
+  res.json({
+    success: true,
+    response: testResponse,
+    customer: null,
+    conversation_context: 'Test mode',
+    processing_time: 10,
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Tasker integration endpoint for SMS forwarding
 app.post('/tasker/sms', async (req, res) => {
   const startTime = Date.now();
