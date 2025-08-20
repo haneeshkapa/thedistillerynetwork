@@ -1347,6 +1347,14 @@ async function processIncomingSMS(phone, message, source = 'twilio') {
   // Note: AI response generation and conversation storage happens in the proper flow below
   
   // Continue to customerInfo definition and proper processing...
+  
+  // Placeholder return for now - this function needs to be completed
+  return {
+    message: "SMS processing is being fixed. Please try again soon.",
+    customerInfo: null,
+    context: "System maintenance"
+  };
+}
 
 // Enhanced system stats endpoint
 app.get('/stats', async (req, res) => {
