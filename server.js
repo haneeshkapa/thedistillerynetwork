@@ -1120,20 +1120,22 @@ Respond in a conversational, helpful manner. Keep responses concise and SMS-frie
     }
 
     return {
-      reply: reply,
+      message: reply,
       customerInfo: customerInfo,
       provider: 'claude',
-      success: true
+      success: true,
+      context: 'AI processed'
     };
 
   } catch (error) {
     console.error(`❌ AI processing failed: ${error.message}`);
     return {
-      reply: "I apologize, but I'm experiencing technical difficulties right now. Please call us at (603) 997-6786 for immediate assistance with your distillation equipment questions!",
+      message: "I apologize, but I'm experiencing technical difficulties right now. Please call us at (603) 997-6786 for immediate assistance with your distillation equipment questions!",
       customerInfo: customerInfo,
       provider: 'fallback',
       success: false,
-      error: error.message
+      error: error.message,
+      context: 'Error fallback'
     };
   }
 }
