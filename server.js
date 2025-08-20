@@ -1225,6 +1225,155 @@ app.get('/health', (req, res) => {
   res.json({ status: 'OK', message: 'Jonathan\'s Distillation SMS Bot is running' });
 });
 
+// Tasker integration endpoint for SMS forwarding
+app.post('/tasker/sms', async (req, res) => {
+  const startTime = Date.now();
+  
+  try {
+    const { phone, message, sender_name } = req.body;
+    
+    if (!phone || !message) {
+      return res.status(400).json({ 
+        error: 'Phone and message are required',
+        required: ['phone', 'message'],
+        optional: ['sender_name']
+      });
+    }
+    
+    logger.info('Tasker SMS received', { 
+      phone: phone.substring(0, 6) + '***',
+      messageLength: message.length,
+      sender_name: sender_name || 'Unknown'
+    });
+    
+    // Use the existing SMS processing logic
+    const response = await processIncomingSMS(phone, message, 'tasker');
+    
+    const processingTime = Date.now() - startTime;
+    
+    // Return structured response for Tasker
+    res.json({
+      success: true,
+      response: response.message,
+      customer: response.customerInfo,
+      conversation_context: response.context || 'New conversation',
+      processing_time: processingTime,
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    const processingTime = Date.now() - startTime;
+    
+    logger.error('Tasker SMS processing failed', { 
+      error: error.message,
+      processing_time: processingTime
+    });
+    
+    res.status(500).json({
+      success: false,
+      error: 'Failed to process SMS',
+      message: 'Sorry, I\'m having trouble right now. Please try again in a moment.',
+      processing_time: processingTime
+    });
+  }
+});
+
+// Helper function to process SMS (reused from /reply endpoint)
+async function processIncomingSMS(phone, message, source = 'twilio') {
+  let customerInfo = null;
+  let conversationHistory = [];
+  let combinedKnowledge = '';
+  
+  try {
+    // Customer lookup with timeout
+    customerInfo = await Promise.race([
+      enhancedSheetsService.findCustomerByPhone(phone),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Customer lookup timeout')), 8000)
+      )
+    ]);
+    
+    console.log(`📞 Customer found: ${customerInfo?.name || 'Unknown'} (${phone})`);
+  } catch (error) {
+    console.log(`⚠️ Customer lookup failed for ${phone}: ${error.message}`);
+  }
+  
+  try {
+    // Get conversation history with timeout
+    conversationHistory = await Promise.race([
+      enterpriseChatStorage.getConversationHistory(phone, 5),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Enterprise storage timeout')), 12000)
+      )
+    ]);
+    console.log(`📚 Retrieved ${conversationHistory.length} messages from enterprise storage`);
+  } catch (error) {
+    console.log(`⚠️ Enterprise storage retrieval failed, using local: ${error.message}`);
+    conversationHistory = getConversationHistory(phone, 5);
+  }
+  
+  try {
+    // Get knowledge base context with timeout
+    combinedKnowledge = await Promise.race([
+      knowledgeRetriever.getRelevantKnowledge(message, 3),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Knowledge retrieval timeout')), 5000)
+      )
+    ]);
+  } catch (error) {
+    console.log(`⚠️ Knowledge retrieval failed: ${error.message}`);
+    combinedKnowledge = 'Basic product information available on request.';
+  }
+  
+  // Format conversation history
+  let historyContext = '';
+  if (conversationHistory.length > 0) {
+    console.log(`🔄 Building conversation context from ${conversationHistory.length} messages`);
+    historyContext = '\n\nPREVIOUS CONVERSATION:\n';
+    conversationHistory.forEach((msg, i) => {
+      historyContext += `[${new Date(msg.timestamp).toLocaleString()}]\n`;
+      historyContext += `Customer: ${msg.customerMessage}\n`;
+      historyContext += `You: ${msg.botResponse}\n\n`;
+    });
+    historyContext += 'CURRENT MESSAGE:\n';
+    console.log(`📝 History context length: ${historyContext.length} characters`);
+  } else {
+    console.log(`📭 No conversation history found for phone: ${phone}`);
+  }
+  
+  // Get personality from storage
+  let personality = loadPersonalityFromStorage();
+  
+  // Create optimized prompt
+  const optimizedPrompt = promptOptimizer.optimizePrompt({
+    personality,
+    combinedKnowledge,
+    customerInfo,
+    message,
+    conversationHistory: historyContext
+  });
+  
+  // Generate AI response
+  const aiResponse = await generateClaudeResponse(optimizedPrompt, phone);
+  
+  // Store conversation
+  try {
+    await enterpriseChatStorage.storeMessage(phone, message, aiResponse, {
+      customerInfo,
+      source,
+      processingTime: Date.now() - Date.now()
+    });
+  } catch (error) {
+    console.log(`⚠️ Failed to store conversation: ${error.message}`);
+  }
+  
+  return {
+    message: aiResponse,
+    customerInfo,
+    context: conversationHistory.length > 0 ? 'Continuing conversation' : 'New conversation'
+  };
+}
+
 // Enhanced system stats endpoint
 app.get('/stats', async (req, res) => {
   try {
