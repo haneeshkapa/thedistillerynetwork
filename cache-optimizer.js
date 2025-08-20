@@ -72,13 +72,27 @@ CACHE_TIER_5MIN_STABLE_CONTENT`;
         // Add customer context if available  
         if (customerInfo) {
             dynamicSection += `\nCUSTOMER INFO:\n`;
-            dynamicSection += `Phone: ${customerInfo.phone || 'Unknown'}\n`;
+            dynamicSection += `Name: ${customerInfo.name || 'Unknown'}\n`;
+            dynamicSection += `Order ID: ${customerInfo.orderId || 'Unknown'}\n`;
+            dynamicSection += `Product: ${customerInfo.product || 'Unknown'}\n`;
+            dynamicSection += `Email: ${customerInfo.email || 'Unknown'}\n`;
+            
             if (customerInfo.previousOrders) {
                 dynamicSection += `Previous Orders: ${customerInfo.previousOrders.length} orders\n`;
             }
             if (customerInfo.lastOrderAmount) {
                 dynamicSection += `Last Order: $${customerInfo.lastOrderAmount}\n`;
             }
+            
+            // Add critical status context if available
+            if (customerInfo.statusContext && customerInfo.statusContext.length > 0) {
+                dynamicSection += customerInfo.statusContext + '\n';
+            }
+        }
+        
+        // Add conversation history if available
+        if (customerInfo.conversationHistory && customerInfo.conversationHistory.length > 0) {
+            dynamicSection += customerInfo.conversationHistory + '\n';
         }
         
         // Add user message

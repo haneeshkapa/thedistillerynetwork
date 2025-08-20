@@ -7,26 +7,8 @@ class OptimizedReplyHandler {
         this.responseTemplates = responseTemplates;
         this.cacheOptimizer = cacheOptimizer;
         
-        // Common query patterns for cheap lane routing - Jonathan's voice
-        this.cheapLanePatterns = [
-            // Conversational greetings - Jonathan's chill personality
-            { pattern: /^(hi|hey|hello|what's up|whats up|sup)(\s+(jonathan|man|dude|there))?$/i, response: "Hey there! I'm Jonathan from American Copper Works. What can I help you with today? Give me a call at (603) 997-6786 if you want to chat about stills!" },
-            
-            // Simple product inquiries - more complex distillation questions go to AI
-            { pattern: /^(what do you make|what do you sell)$/i, response: "Hey! I make quality copper stills and distillation equipment here at American Copper Works. Each one's built to last. Give me a call at (603) 997-6786 and we can talk about what you need!" },
-            
-            // Pricing with Jonathan's personality
-            { pattern: /price|cost|how much|pricing/i, response: "Pricing depends on what you're looking for - I've got everything from DIY kits to complete setups. Give me a ring at (603) 997-6786 and we'll figure out what works best for you!" },
-            
-            // About Jonathan/company
-            { pattern: /about|who are you|tell me about|your company|american copper/i, response: "I'm Jonathan, and I run American Copper Works. Been making quality copper moonshine stills and distillation gear for folks who appreciate good craftsmanship. Check us out at moonshinestills.com or call (603) 997-6786!" },
-            
-            // Basic contact info with personality
-            { pattern: /^(hours?|when (are you )?open)$/i, response: "Just give me a call at (603) 997-6786 or shoot an email to tdnorders@gmail.com. I'm pretty flexible - visit moonshinestills.com too!" },
-            { pattern: /^(address|location|where are you)$/i, response: "Check out moonshinestills.com for all the details or give me a call at (603) 997-6786!" },
-            { pattern: /^(phone|contact|number)$/i, response: "You got it - (603) 997-6786 or tdnorders@gmail.com. Always happy to chat!" },
-            { pattern: /^(website|site|url)$/i, response: "moonshinestills.com - that's where you can see all my work! Or call me at (603) 997-6786." }
-        ];
+        // Cheap lane patterns removed - all messages now go through full AI processing
+        // to ensure customer status and context are properly handled
         
         logger.info('Optimized reply handler initialized');
     }
@@ -35,20 +17,7 @@ class OptimizedReplyHandler {
         const startTime = Date.now();
         
         try {
-            // Step 1: Check cheap lane for instant responses
-            const cheapLaneResponse = this.checkCheapLane(message);
-            if (cheapLaneResponse) {
-                logger.info('Cheap lane response used', { phone, pattern: cheapLaneResponse.pattern });
-                return {
-                    reply: cheapLaneResponse.response,
-                    tokensUsed: 0,
-                    cost: 0,
-                    method: 'cheap_lane',
-                    responseTime: Date.now() - startTime
-                };
-            }
-            
-            // Step 2: Get knowledge with advanced retrieval
+            // Step 1: Get knowledge with advanced retrieval (cheap lane removed)
             const retrievalStart = Date.now();
             const relevantKnowledge = await this.knowledgeRetriever.getOptimizedKnowledge(message);
             const retrievalTime = Date.now() - retrievalStart;
@@ -126,21 +95,7 @@ class OptimizedReplyHandler {
         }
     }
     
-    // Check if query matches cheap lane patterns
-    checkCheapLane(message) {
-        const cleanMessage = message.trim().toLowerCase();
-        
-        for (const pattern of this.cheapLanePatterns) {
-            if (pattern.pattern.test(cleanMessage)) {
-                return {
-                    pattern: pattern.pattern.source,
-                    response: pattern.response
-                };
-            }
-        }
-        
-        return null;
-    }
+    // Cheap lane check removed - all messages go through full AI processing
     
     // Calculate retrieval confidence based on content relevance
     calculateRetrievalConfidence(retrievalContent, query) {
@@ -209,7 +164,6 @@ class OptimizedReplyHandler {
     // Get performance metrics
     getPerformanceMetrics() {
         return {
-            cheapLanePatterns: this.cheapLanePatterns.length,
             cacheOptimizer: this.cacheOptimizer.cacheHitRate,
             routingAnalysis: this.smartRouter.analyzeCostSavings(1000, 0.7) // Estimate 70% Haiku usage
         };

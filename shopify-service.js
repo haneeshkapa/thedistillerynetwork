@@ -38,7 +38,12 @@ class ShopifyService {
             });
             return response.data;
         } catch (error) {
-            console.error(`Shopify API error for ${endpoint}:`, error.message);
+            if (error.response?.status === 404) {
+                // Don't log 404s as errors - they're just empty resources
+                console.log(`Shopify endpoint ${endpoint} returned 404 (no data)`);
+            } else {
+                console.error(`Shopify API error for ${endpoint}:`, error.message);
+            }
             throw error;
         }
     }
@@ -88,7 +93,12 @@ class ShopifyService {
                 url: `https://${this.storeDomain.replace('.myshopify.com', '')}.com/collections/${collection.handle}`
             }));
         } catch (error) {
-            console.error('Error fetching collections:', error);
+            // 404 means no collections exist, which is normal for some stores
+            if (error.response?.status === 404) {
+                console.log('No collections found in store (404) - this is normal');
+                return [];
+            }
+            console.error('Error fetching collections:', error.message);
             return [];
         }
     }
