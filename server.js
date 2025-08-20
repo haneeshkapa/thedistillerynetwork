@@ -786,8 +786,9 @@ app.post('/reply', async (req, res) => {
     
     enterpriseMonitoring.trackCacheOperation('multi_tier_cache', false);
     
-    // Get conversation history for context using enterprise storage
-    const conversationHistory = await enterpriseChatStorage.getConversationHistory(phone, 5); // Last 5 messages
+    // TEMPORARY: Skip conversation history retrieval to prevent hanging
+    // const conversationHistory = await enterpriseChatStorage.getConversationHistory(phone, 5); // Last 5 messages
+    const conversationHistory = []; // Empty for now
     
     // Process customer (we know customer exists due to early return above)
     // Map data based on your sheet structure
@@ -798,29 +799,9 @@ app.post('/reply', async (req, res) => {
     const customerPhone = customer._rawData[6] || 'N/A';
     const created = customer._rawData[3] || 'N/A';
     
-    // Try to get enhanced status information using color-based detection
+    // TEMPORARY: Skip enhanced status lookup to prevent hanging
     let customerStatusInfo = null;
-    try {
-        if (enhancedSheetsService.enabled) {
-          console.log(`🔍 Looking up enhanced status for original phone: ${phone}, customer phone: ${customerPhone}`);
-          const sheetData = await enhancedSheetsService.getSheetWithOrderStatus();
-          // Try original phone first, then customer phone from database
-          let customerStatus = enhancedSheetsService.findCustomerStatus(sheetData, phone);
-          if (!customerStatus) {
-            customerStatus = enhancedSheetsService.findCustomerStatus(sheetData, customerPhone);
-          }
-          if (customerStatus) {
-            customerStatusInfo = customerStatus;
-            console.log(`✅ Enhanced status found:`, customerStatus.status);
-          } else {
-            console.log(`❌ No enhanced status found for phone: ${phone}`);
-          }
-        } else {
-          console.log('❌ Enhanced sheets service not enabled');
-        }
-    } catch (statusError) {
-      console.error('Enhanced status lookup failed:', statusError.message);
-    }
+    console.log(`⚡ Skipping enhanced status lookup for faster response`);
     
     // Get personality and knowledge from environment and uploaded files
     const personality = personalityText || process.env.CLAUDE_PERSONALITY || "You are Jonathan from American Copper Works, expert in alcohol distillation and copper stills";
