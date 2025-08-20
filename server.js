@@ -1225,6 +1225,78 @@ app.get('/health', (req, res) => {
   res.json({ status: 'OK', message: 'Jonathan\'s Distillation SMS Bot is running' });
 });
 
+// Simple chat endpoint for web interface (bypasses customer lookup requirement)
+app.post('/chat', async (req, res) => {
+  const startTime = Date.now();
+  
+  try {
+    const { message, sessionId } = req.body;
+    
+    if (!message) {
+      return res.status(400).json({ error: 'Message is required' });
+    }
+    
+    const phone = sessionId || '+15551234567'; // Use sessionId or default
+    
+    logger.info('Chat message received', { 
+      sessionId: phone.substring(0, 6) + '***',
+      messageLength: message.length
+    });
+    
+    // Get personality from storage
+    let personality = loadPersonalityFromStorage();
+    
+    // Get knowledge base context
+    let combinedKnowledge = '';
+    try {
+      combinedKnowledge = await Promise.race([
+        knowledgeRetriever.getRelevantKnowledge(message, 3),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Knowledge timeout')), 5000)
+        )
+      ]);
+    } catch (error) {
+      console.log(`⚠️ Knowledge retrieval failed: ${error.message}`);
+      combinedKnowledge = 'Product information available on request.';
+    }
+    
+    // Create simple prompt for chat
+    const chatPrompt = `${personality}
+
+Knowledge Base:
+${combinedKnowledge}
+
+Customer's message: "${message}"
+
+Respond helpfully as Jonathan from American Copper Works:`;
+    
+    // Generate AI response
+    const aiResponse = await generateClaudeResponse(chatPrompt, phone);
+    
+    const processingTime = Date.now() - startTime;
+    
+    res.json({ 
+      reply: aiResponse,
+      processing_time: processingTime,
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    const processingTime = Date.now() - startTime;
+    
+    logger.error('Chat processing failed', { 
+      error: error.message,
+      processing_time: processingTime
+    });
+    
+    res.status(500).json({
+      error: 'Failed to process message',
+      reply: 'Sorry, I\'m having trouble right now. Please try again in a moment.',
+      processing_time: processingTime
+    });
+  }
+});
+
 // Tasker integration endpoint for SMS forwarding
 app.post('/tasker/sms', async (req, res) => {
   const startTime = Date.now();

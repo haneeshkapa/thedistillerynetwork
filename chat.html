@@ -227,14 +227,14 @@
             setThinking(true);
             
             try {
-                const response = await fetch('/reply', {
+                const response = await fetch('/chat', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        phone: sessionId || '+15551234567', // Use sessionId as phone or default
-                        message: message
+                        message: message,
+                        sessionId: sessionId
                     })
                 });
                 
