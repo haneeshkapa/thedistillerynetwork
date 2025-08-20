@@ -786,9 +786,15 @@ app.post('/reply', async (req, res) => {
     
     enterpriseMonitoring.trackCacheOperation('multi_tier_cache', false);
     
-    // TEMPORARY: Skip conversation history retrieval to prevent hanging
-    // const conversationHistory = await enterpriseChatStorage.getConversationHistory(phone, 5); // Last 5 messages
-    const conversationHistory = []; // Empty for now
+    // Try enterprise storage first, fallback to local if needed
+    let conversationHistory = [];
+    try {
+      conversationHistory = await enterpriseChatStorage.getConversationHistory(phone, 5);
+      console.log(`📚 Retrieved ${conversationHistory.length} messages from enterprise storage`);
+    } catch (error) {
+      console.log(`⚠️  Enterprise storage retrieval failed, using local: ${error.message}`);
+      conversationHistory = getConversationHistory(phone, 5); // Fallback to local storage
+    }
     
     // Process customer (we know customer exists due to early return above)
     // Map data based on your sheet structure
@@ -958,15 +964,19 @@ app.post('/reply', async (req, res) => {
     
     console.log(`Generated reply: ${reply}`);
     
-    // TEMPORARY: Skip enterprise storage to prevent hanging (PostgreSQL might be slow)
-    // await enterpriseChatStorage.storeMessage(phone, message, reply, {
-    //   customerInfo: customerInfo,
-    //   provider: result.provider || 'claude',
-    //   processingTime: Date.now() - startTime,
-    //   confidence: result.confidence || null,
-    //   tokensUsed: result.tokensUsed || null
-    // });
-    console.log(`⚡ Skipping enterprise storage for faster response`);
+    // Store conversation in enterprise storage (PostgreSQL on Render, MySQL locally)
+    try {
+      await enterpriseChatStorage.storeMessage(phone, message, reply, {
+        customerInfo: customerInfo,
+        provider: result.provider || 'claude',
+        processingTime: Date.now() - startTime,
+        confidence: result.confidence || null,
+        tokensUsed: result.tokensUsed || null
+      });
+      console.log(`✅ Conversation stored in enterprise storage`);
+    } catch (error) {
+      console.log(`⚠️  Enterprise storage failed, using local fallback: ${error.message}`);
+    }
     
     // Also log in old system for backward compatibility (during migration)
     logChatMessage(phone, message, reply, customerInfo);
