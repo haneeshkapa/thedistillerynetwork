@@ -42,8 +42,12 @@ class ConversationGraph {
 
     async initialize() {
         try {
-            await this.redis.connect();
-            logger.info('Conversation graph initialized');
+            if (this.redis) {
+                await this.redis.connect();
+                logger.info('Conversation graph initialized with Redis');
+            } else {
+                logger.info('Conversation graph initialized without Redis (in-memory only)');
+            }
         } catch (error) {
             logger.error('Conversation graph initialization error:', error.message);
         }
@@ -149,6 +153,12 @@ class ConversationGraph {
 
     async storeInDatabase(phone, query, response, metadata) {
         try {
+            // Skip database operations if no MySQL pool available (using PostgreSQL instead)
+            if (!this.dbPool) {
+                console.log('📊 Skipping MySQL storage - using PostgreSQL enterprise storage');
+                return;
+            }
+            
             const phoneHash = this.hashPhone(phone);
             
             // Get or create customer
@@ -191,6 +201,11 @@ class ConversationGraph {
 
     async loadFromDatabase(phone) {
         try {
+            // Skip database operations if no MySQL pool available (using PostgreSQL instead)
+            if (!this.dbPool) {
+                return [];
+            }
+            
             const phoneHash = this.hashPhone(phone);
             
             const [conversations] = await this.dbPool.execute(`
