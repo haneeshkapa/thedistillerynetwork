@@ -2288,17 +2288,42 @@ app.delete('/admin/logs', requireAuth, (req, res) => {
 // Enterprise storage initialization removed - already initialized above
 
 // Start server
-app.listen(port, async () => {
+app.listen(port, () => {
   logger.success(`Jonathan's Distillation SMS Bot server started on port ${port}`);
   
-  // Initialize core components
-  loadChatLogs(); // Load existing chat logs (fallback)
-  await initializeGoogleSheets();
-  // Enterprise storage already initialized
-  await testClaudeAPI();
+  // Initialize core components asynchronously (don't block startup)
+  (async () => {
+    try {
+      console.log('🚀 Starting background initialization...');
+      
+      // Load existing chat logs (fallback) - synchronous
+      loadChatLogs();
+      
+      // Initialize Google Sheets with timeout
+      await Promise.race([
+        initializeGoogleSheets(),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Google Sheets init timeout')), 15000)
+        )
+      ]).catch(err => console.log('⚠️ Google Sheets init failed:', err.message));
+      
+      // Test Claude API with timeout
+      await Promise.race([
+        testClaudeAPI(),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Claude API test timeout')), 10000)
+        )
+      ]).catch(err => console.log('⚠️ Claude API test failed:', err.message));
+      
+      console.log('✅ Background initialization completed');
+      
+    } catch (error) {
+      console.error('❌ Background initialization error:', error.message);
+    }
+  })();
   
-  // Initial startup complete - automated sync will handle Shopify data
-  logger.info('🥃 Jonathan\'s Distillation Bot initialization complete - ready to help with stills and spirits!');
+  // Server is ready immediately
+  logger.info('🥃 Jonathan\'s Distillation Bot server is ready - ready to help with stills and spirits!');
 });
 
 module.exports = app;
