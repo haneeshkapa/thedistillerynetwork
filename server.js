@@ -74,21 +74,10 @@ app.use((req, res, next) => {
   next();
 });
 
-// Custom static file serving with authentication for management.html
-app.use((req, res, next) => {
-  if (req.path === '/management.html') {
-    // Check if user is authenticated
-    if (req.session && req.session.authenticated) {
-      return next();
-    } else {
-      // Redirect to login page instead of returning JSON error
-      return res.redirect('/login.html');
-    }
-  }
-  next();
-});
-
-app.use(express.static('.'));
+// Serve static files without authentication
+app.use(express.static('.', {
+  index: false // Disable directory indexing for security
+}));
 
 // File upload configuration
 const upload = multer({ 
@@ -194,18 +183,7 @@ function loadPinFromFile() {
   }
 }
 
-// Authentication middleware
-function requireAuth(req, res, next) {
-  if (req.session && req.session.authenticated) {
-    return next();
-  } else {
-    logger.warn(`Authentication required for ${req.method} ${req.url}`, { 
-      ip: req.ip || req.connection.remoteAddress,
-      userAgent: req.get('User-Agent')
-    });
-    return res.status(401).json({ error: 'Authentication required' });
-  }
-}
+// Authentication removed - all endpoints are now public
 
 // Generate session token
 function generateToken() {
@@ -276,7 +254,7 @@ app.post('/admin/logout', (req, res) => {
 });
 
 // PIN management routes
-app.get('/admin/pin', requireAuth, (req, res) => {
+app.get('/admin/pin', (req, res) => {
   res.json({
     hasCustomPin: fs.existsSync(ADMIN_FILE),
     lastUpdated: fs.existsSync(ADMIN_FILE) ? 
@@ -284,7 +262,7 @@ app.get('/admin/pin', requireAuth, (req, res) => {
   });
 });
 
-app.post('/admin/pin', requireAuth, (req, res) => {
+app.post('/admin/pin', (req, res) => {
   try {
     const { currentPin, newPin } = req.body;
     
@@ -319,13 +297,13 @@ app.post('/admin/pin', requireAuth, (req, res) => {
 // SHOPIFY INTEGRATION ENDPOINTS
 
 // Get Shopify sync status
-app.get('/admin/shopify/status', requireAuth, (req, res) => {
+app.get('/admin/shopify/status', (req, res) => {
   const status = shopifyService.getSyncStatus();
   res.json(status);
 });
 
 // Enhanced Shopify sync endpoint using automated function
-app.post('/admin/shopify/sync', requireAuth, async (req, res) => {
+app.post('/admin/shopify/sync', async (req, res) => {
   try {
     if (!shopifyService.enabled) {
       return res.status(400).json({ error: 'Shopify integration not configured' });
@@ -365,7 +343,7 @@ app.post('/admin/shopify/sync', requireAuth, async (req, res) => {
 });
 
 // Get order status (for customer inquiries)
-app.post('/admin/shopify/order', requireAuth, async (req, res) => {
+app.post('/admin/shopify/order', async (req, res) => {
   try {
     const { orderNumber } = req.body;
     
@@ -393,7 +371,7 @@ app.post('/admin/shopify/order', requireAuth, async (req, res) => {
 // ENHANCED GOOGLE SHEETS ENDPOINTS
 
 // Get sheets info with formatting capabilities
-app.get('/admin/sheets/info', requireAuth, async (req, res) => {
+app.get('/admin/sheets/info', async (req, res) => {
   try {
     if (!enhancedSheetsService.enabled) {
       return res.status(400).json({ error: 'Enhanced Google Sheets service not configured' });
@@ -409,7 +387,7 @@ app.get('/admin/sheets/info', requireAuth, async (req, res) => {
 });
 
 // Get sheet data with formatting
-app.get('/admin/sheets/formatting/:sheetName?', requireAuth, async (req, res) => {
+app.get('/admin/sheets/formatting/:sheetName?', async (req, res) => {
   try {
     if (!enhancedSheetsService.enabled) {
       return res.status(400).json({ error: 'Enhanced Google Sheets service not configured' });
@@ -435,7 +413,7 @@ app.get('/admin/sheets/formatting/:sheetName?', requireAuth, async (req, res) =>
 });
 
 // Get formatting summary only (lighter response)
-app.get('/admin/sheets/summary/:sheetName?', requireAuth, async (req, res) => {
+app.get('/admin/sheets/summary/:sheetName?', async (req, res) => {
   try {
     if (!enhancedSheetsService.enabled) {
       return res.status(400).json({ error: 'Enhanced Google Sheets service not configured' });
@@ -457,13 +435,13 @@ app.get('/admin/sheets/summary/:sheetName?', requireAuth, async (req, res) => {
 });
 
 // Get enhanced sheets service status
-app.get('/admin/sheets/status', requireAuth, (req, res) => {
+app.get('/admin/sheets/status', (req, res) => {
   const status = enhancedSheetsService.getStatus();
   res.json(status);
 });
 
 // Get sheet data with order status interpretation
-app.get('/admin/sheets/orders/:sheetName?', requireAuth, async (req, res) => {
+app.get('/admin/sheets/orders/:sheetName?', async (req, res) => {
   try {
     if (!enhancedSheetsService.enabled) {
       return res.status(400).json({ error: 'Enhanced Google Sheets service not configured' });
@@ -486,7 +464,7 @@ app.get('/admin/sheets/orders/:sheetName?', requireAuth, async (req, res) => {
 });
 
 // Get order status summary only
-app.get('/admin/sheets/status-summary/:sheetName?', requireAuth, async (req, res) => {
+app.get('/admin/sheets/status-summary/:sheetName?', async (req, res) => {
   try {
     if (!enhancedSheetsService.enabled) {
       return res.status(400).json({ error: 'Enhanced Google Sheets service not configured' });
@@ -505,7 +483,7 @@ app.get('/admin/sheets/status-summary/:sheetName?', requireAuth, async (req, res
 });
 
 // Find customer order status by phone number
-app.post('/admin/sheets/customer-status', requireAuth, async (req, res) => {
+app.post('/admin/sheets/customer-status', async (req, res) => {
   try {
     if (!enhancedSheetsService.enabled) {
       return res.status(400).json({ error: 'Enhanced Google Sheets service not configured' });
@@ -1235,9 +1213,7 @@ app.get('/', (req, res) => {
 });
 
 // Explicit route for management dashboard
-app.get('/management.html', (req, res) => {
-  res.sendFile(path.join(__dirname, 'management.html'));
-});
+// management.html now served via static files
 
 // Explicit route for upload page
 app.get('/upload.html', (req, res) => {
@@ -1417,7 +1393,7 @@ function processExcel(filePath) {
 }
 
 // Upload knowledge base file endpoint
-app.post('/upload-knowledge', requireAuth, upload.single('file'), async (req, res) => {
+app.post('/upload-knowledge', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
@@ -1476,7 +1452,7 @@ app.post('/upload-knowledge', requireAuth, upload.single('file'), async (req, re
 });
 
 // Get current knowledge base with full details
-app.get('/knowledge', requireAuth, (req, res) => {
+app.get('/knowledge', (req, res) => {
   res.json({
     hasKnowledge: !!knowledgeBase,
     size: knowledgeBase.length,
@@ -1494,7 +1470,7 @@ app.get('/knowledge', requireAuth, (req, res) => {
 });
 
 // Add text-based knowledge
-app.post('/knowledge/text', requireAuth, (req, res) => {
+app.post('/knowledge/text', (req, res) => {
   try {
     const { text, title } = req.body;
     
@@ -1534,7 +1510,7 @@ app.post('/knowledge/text', requireAuth, (req, res) => {
 });
 
 // Update knowledge entry
-app.put('/knowledge/:id', requireAuth, (req, res) => {
+app.put('/knowledge/:id', (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const { content, title } = req.body;
@@ -1566,7 +1542,7 @@ app.put('/knowledge/:id', requireAuth, (req, res) => {
 });
 
 // Delete knowledge entry
-app.delete('/knowledge/:id', requireAuth, (req, res) => {
+app.delete('/knowledge/:id', (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const entryIndex = knowledgeHistory.findIndex(k => k.id === id);
@@ -1597,7 +1573,7 @@ app.delete('/knowledge/:id', requireAuth, (req, res) => {
 });
 
 // Clear all knowledge
-app.delete('/knowledge', requireAuth, (req, res) => {
+app.delete('/knowledge', (req, res) => {
   knowledgeHistory = [];
   knowledgeBase = '';
   
@@ -1612,7 +1588,7 @@ app.delete('/knowledge', requireAuth, (req, res) => {
 // PERSONALITY MANAGEMENT
 
 // Get current personality
-app.get('/personality', requireAuth, (req, res) => {
+app.get('/personality', (req, res) => {
   const envPersonality = process.env.CLAUDE_PERSONALITY || '';
   const currentPersonality = personalityText || envPersonality || "You are a helpful customer service representative";
   
@@ -1625,7 +1601,7 @@ app.get('/personality', requireAuth, (req, res) => {
 });
 
 // Update personality via text
-app.post('/personality', requireAuth, (req, res) => {
+app.post('/personality', (req, res) => {
   try {
     const { personality } = req.body;
     
@@ -1653,7 +1629,7 @@ app.post('/personality', requireAuth, (req, res) => {
 });
 
 // Upload personality file
-app.post('/personality/upload', requireAuth, upload.single('file'), async (req, res) => {
+app.post('/personality/upload', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
@@ -1698,7 +1674,7 @@ app.post('/personality/upload', requireAuth, upload.single('file'), async (req, 
 });
 
 // Reset personality to default/environment
-app.delete('/personality', requireAuth, (req, res) => {
+app.delete('/personality', (req, res) => {
   personalityText = '';
   
   // Save to persistent storage
@@ -1713,9 +1689,7 @@ app.delete('/personality', requireAuth, (req, res) => {
 });
 
 // Protected route for management dashboard
-app.get('/management.html', requireAuth, (req, res) => {
-  res.sendFile(path.join(__dirname, 'management.html'));
-});
+// management.html now served via static files
 
 // Serve login page (unprotected)
 app.get('/admin', (req, res) => {
@@ -1730,7 +1704,7 @@ app.get('/test-errors', (req, res) => {
 // CHAT HISTORY MANAGEMENT
 
 // Get all chat logs
-app.get('/chat-logs', requireAuth, (req, res) => {
+app.get('/chat-logs', (req, res) => {
   const logs = Object.values(chatHistory).map(chat => ({
     phone: chat.phone || 'Unknown',
     customerInfo: chat.customerInfo || null,
@@ -1747,7 +1721,7 @@ app.get('/chat-logs', requireAuth, (req, res) => {
 });
 
 // Get detailed conversation for specific customer
-app.get('/chat-logs/:phone', requireAuth, (req, res) => {
+app.get('/chat-logs/:phone', (req, res) => {
   const phone = req.params.phone;
   const chat = chatHistory[phone];
   
@@ -1759,7 +1733,7 @@ app.get('/chat-logs/:phone', requireAuth, (req, res) => {
 });
 
 // Delete conversation history for specific customer
-app.delete('/chat-logs/:phone', requireAuth, (req, res) => {
+app.delete('/chat-logs/:phone', (req, res) => {
   const phone = req.params.phone;
   
   if (!chatHistory[phone]) {
@@ -1773,7 +1747,7 @@ app.delete('/chat-logs/:phone', requireAuth, (req, res) => {
 });
 
 // Clear all chat logs
-app.delete('/chat-logs', requireAuth, (req, res) => {
+app.delete('/chat-logs', (req, res) => {
   chatHistory = {};
   saveChatLogs();
   
@@ -1781,7 +1755,7 @@ app.delete('/chat-logs', requireAuth, (req, res) => {
 });
 
 // Export chat logs as JSON
-app.get('/chat-logs/export/json', requireAuth, (req, res) => {
+app.get('/chat-logs/export/json', (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Content-Disposition', 'attachment; filename=chat_logs_export.json');
   res.json(chatHistory);
@@ -1947,7 +1921,7 @@ app.post('/webhook/shopify', express.raw({ type: 'application/json' }), (req, re
 });
 
 // Claude API Rate Limiter Management Endpoints
-app.get('/admin/claude/status', requireAuth, (req, res) => {
+app.get('/admin/claude/status', (req, res) => {
   try {
     const status = claudeRateLimiter.getStatus();
     res.json({
@@ -1960,7 +1934,7 @@ app.get('/admin/claude/status', requireAuth, (req, res) => {
   }
 });
 
-app.delete('/admin/claude/cache', requireAuth, (req, res) => {
+app.delete('/admin/claude/cache', (req, res) => {
   try {
     const clearedCount = claudeRateLimiter.clearCache();
     logger.success('Claude API cache cleared by admin', { 
@@ -1978,7 +1952,7 @@ app.delete('/admin/claude/cache', requireAuth, (req, res) => {
 });
 
 // Logging Management API Endpoints
-app.get('/admin/logs', requireAuth, (req, res) => {
+app.get('/admin/logs', (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 100;
     const logs = logger.getRecentLogs(limit);
@@ -1994,7 +1968,7 @@ app.get('/admin/logs', requireAuth, (req, res) => {
   }
 });
 
-app.get('/admin/logs/stats', requireAuth, (req, res) => {
+app.get('/admin/logs/stats', (req, res) => {
   try {
     const stats = logger.getStats();
     res.json({
@@ -2034,7 +2008,7 @@ app.post('/admin/client-error', (req, res) => {
 // BATCH PROCESSING ENDPOINTS
 
 // Get batch processing analytics
-app.get('/admin/batch/analytics', requireAuth, (req, res) => {
+app.get('/admin/batch/analytics', (req, res) => {
   try {
     const analytics = batchProcessor.getBatchAnalytics();
     res.json({
@@ -2048,7 +2022,7 @@ app.get('/admin/batch/analytics', requireAuth, (req, res) => {
 });
 
 // Create knowledge sync batch job
-app.post('/admin/batch/knowledge-sync', requireAuth, async (req, res) => {
+app.post('/admin/batch/knowledge-sync', async (req, res) => {
   try {
     // Get current products and collections for batch processing
     const products = await shopifyService.getProducts();
@@ -2080,7 +2054,7 @@ app.post('/admin/batch/knowledge-sync', requireAuth, async (req, res) => {
 });
 
 // Create support content batch job
-app.post('/admin/batch/support-content', requireAuth, async (req, res) => {
+app.post('/admin/batch/support-content', async (req, res) => {
   try {
     const { queries, productData } = req.body;
     
@@ -2111,7 +2085,7 @@ app.post('/admin/batch/support-content', requireAuth, async (req, res) => {
 });
 
 // Check batch job status
-app.get('/admin/batch/:batchId/status', requireAuth, async (req, res) => {
+app.get('/admin/batch/:batchId/status', async (req, res) => {
   try {
     const { batchId } = req.params;
     const status = await batchProcessor.checkBatchStatus(batchId);
@@ -2130,7 +2104,7 @@ app.get('/admin/batch/:batchId/status', requireAuth, async (req, res) => {
 });
 
 // Get batch job results
-app.get('/admin/batch/:batchId/results', requireAuth, async (req, res) => {
+app.get('/admin/batch/:batchId/results', async (req, res) => {
   try {
     const { batchId } = req.params;
     const results = await batchProcessor.getBatchResults(batchId);
@@ -2149,7 +2123,7 @@ app.get('/admin/batch/:batchId/results', requireAuth, async (req, res) => {
 });
 
 // Process batch results into knowledge updates
-app.post('/admin/batch/:batchId/process', requireAuth, async (req, res) => {
+app.post('/admin/batch/:batchId/process', async (req, res) => {
   try {
     const { batchId } = req.params;
     const { batchType } = req.body;
@@ -2180,7 +2154,7 @@ app.post('/admin/batch/:batchId/process', requireAuth, async (req, res) => {
 });
 
 // List all active batch jobs
-app.get('/admin/batch/active', requireAuth, (req, res) => {
+app.get('/admin/batch/active', (req, res) => {
   try {
     const batches = batchProcessor.getActiveBatches();
     res.json({
@@ -2194,7 +2168,7 @@ app.get('/admin/batch/active', requireAuth, (req, res) => {
 });
 
 // Vector embeddings management endpoints
-app.get('/admin/vector/analytics', requireAuth, async (req, res) => {
+app.get('/admin/vector/analytics', async (req, res) => {
   try {
     const analytics = await hybridVectorRetriever.getSearchAnalytics();
     res.json({
@@ -2207,7 +2181,7 @@ app.get('/admin/vector/analytics', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/admin/vector/rebuild-embeddings', requireAuth, async (req, res) => {
+app.post('/admin/vector/rebuild-embeddings', async (req, res) => {
   try {
     logger.info('Starting bulk embedding rebuild', { 
       ip: req.ip || req.connection.remoteAddress,
@@ -2228,7 +2202,7 @@ app.post('/admin/vector/rebuild-embeddings', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/admin/vector/test-search', requireAuth, async (req, res) => {
+app.get('/admin/vector/test-search', async (req, res) => {
   try {
     const { query = 'test query' } = req.query;
     
@@ -2254,7 +2228,7 @@ app.get('/admin/vector/test-search', requireAuth, async (req, res) => {
 });
 
 // Enterprise monitoring endpoints
-app.get('/admin/monitoring/dashboard', requireAuth, (req, res) => {
+app.get('/admin/monitoring/dashboard', (req, res) => {
   try {
     const dashboardData = enterpriseMonitoring.getDashboardData();
     res.json({
@@ -2267,7 +2241,7 @@ app.get('/admin/monitoring/dashboard', requireAuth, (req, res) => {
   }
 });
 
-app.post('/admin/monitoring/alert', requireAuth, (req, res) => {
+app.post('/admin/monitoring/alert', (req, res) => {
   try {
     const { message, severity = 'medium', metadata = {} } = req.body;
     
@@ -2286,7 +2260,7 @@ app.post('/admin/monitoring/alert', requireAuth, (req, res) => {
   }
 });
 
-app.post('/admin/monitoring/reset-metrics', requireAuth, (req, res) => {
+app.post('/admin/monitoring/reset-metrics', (req, res) => {
   try {
     enterpriseMonitoring.resetMetrics();
     
@@ -2303,7 +2277,7 @@ app.post('/admin/monitoring/reset-metrics', requireAuth, (req, res) => {
 });
 
 // Enterprise chat storage management endpoints
-app.get('/admin/storage/stats', requireAuth, async (req, res) => {
+app.get('/admin/storage/stats', async (req, res) => {
   try {
     const stats = await enterpriseChatStorage.getStorageStats();
     res.json({
@@ -2316,7 +2290,7 @@ app.get('/admin/storage/stats', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/admin/storage/migrate', requireAuth, async (req, res) => {
+app.post('/admin/storage/migrate', async (req, res) => {
   try {
     const jsonFilePath = req.body.jsonFilePath || './chat_logs.json';
     
@@ -2340,7 +2314,7 @@ app.post('/admin/storage/migrate', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/admin/storage/conversations/:phone', requireAuth, async (req, res) => {
+app.get('/admin/storage/conversations/:phone', async (req, res) => {
   try {
     const { phone } = req.params;
     const limit = parseInt(req.query.limit) || 10;
@@ -2360,7 +2334,7 @@ app.get('/admin/storage/conversations/:phone', requireAuth, async (req, res) => 
   }
 });
 
-app.post('/admin/storage/archive', requireAuth, async (req, res) => {
+app.post('/admin/storage/archive', async (req, res) => {
   try {
     logger.info('Manual archive process started', { 
       admin: req.ip || req.connection.remoteAddress,
@@ -2380,7 +2354,7 @@ app.post('/admin/storage/archive', requireAuth, async (req, res) => {
   }
 });
 
-app.delete('/admin/logs', requireAuth, (req, res) => {
+app.delete('/admin/logs', (req, res) => {
   try {
     const success = logger.clearLogs();
     if (success) {
@@ -2403,7 +2377,7 @@ app.delete('/admin/logs', requireAuth, (req, res) => {
 if (process.env.DATABASE_URL) {
   
   // Get all knowledge base entries
-  app.get('/admin/knowledge', requireAuth, async (req, res) => {
+  app.get('/admin/knowledge', async (req, res) => {
     try {
       const { includeInactive } = req.query;
       const knowledge = await knowledgeRetriever.getAllKnowledge(includeInactive === 'true');
@@ -2418,7 +2392,7 @@ if (process.env.DATABASE_URL) {
   });
   
   // Add new knowledge entry
-  app.post('/admin/knowledge', requireAuth, async (req, res) => {
+  app.post('/admin/knowledge', async (req, res) => {
     try {
       const { category, title, content, keywords = [], priority = 5 } = req.body;
       
@@ -2449,7 +2423,7 @@ if (process.env.DATABASE_URL) {
   });
   
   // Update knowledge entry
-  app.put('/admin/knowledge/:id', requireAuth, async (req, res) => {
+  app.put('/admin/knowledge/:id', async (req, res) => {
     try {
       const { id } = req.params;
       const updates = req.body;
@@ -2479,7 +2453,7 @@ if (process.env.DATABASE_URL) {
   });
   
   // Delete knowledge entry (soft delete)
-  app.delete('/admin/knowledge/:id', requireAuth, async (req, res) => {
+  app.delete('/admin/knowledge/:id', async (req, res) => {
     try {
       const { id } = req.params;
       const result = await knowledgeRetriever.deleteKnowledge(parseInt(id), 'admin');
@@ -2498,7 +2472,7 @@ if (process.env.DATABASE_URL) {
   });
   
   // Get knowledge base statistics
-  app.get('/admin/knowledge/stats', requireAuth, async (req, res) => {
+  app.get('/admin/knowledge/stats', async (req, res) => {
     try {
       const stats = await knowledgeRetriever.getKnowledgeStats();
       res.json({
@@ -2512,7 +2486,7 @@ if (process.env.DATABASE_URL) {
   });
   
   // Test knowledge search
-  app.post('/admin/knowledge/search', requireAuth, async (req, res) => {
+  app.post('/admin/knowledge/search', async (req, res) => {
     try {
       const { query, maxResults = 5 } = req.body;
       

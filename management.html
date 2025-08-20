@@ -578,61 +578,9 @@
             console.error(message, error);
         }
 
-        // Authentication check
-        function checkAuthentication() {
-            const token = localStorage.getItem('adminToken');
-            if (!token) {
-                window.location.href = '/admin';
-                return false;
-            }
-            
-            // Verify token with server
-            fetch('/admin/verify', {
-                headers: {
-                    'Authorization': 'Bearer ' + token
-                }
-            })
-            .then(response => response.json())
-            .then(result => {
-                if (!result.valid) {
-                    localStorage.removeItem('adminToken');
-                    window.location.href = '/admin';
-                }
-            })
-            .catch(() => {
-                localStorage.removeItem('adminToken');
-                window.location.href = '/admin';
-            });
-            
-            return true;
-        }
+        // Authentication functions removed - no longer needed
         
-        // Add logout functionality
-        function logout() {
-            if (confirm('Are you sure you want to logout?')) {
-                const token = localStorage.getItem('adminToken');
-                fetch('/admin/logout', {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': 'Bearer ' + token
-                    }
-                })
-                .then(() => {
-                    localStorage.removeItem('adminToken');
-                    window.location.href = '/admin';
-                })
-                .catch(() => {
-                    localStorage.removeItem('adminToken');
-                    window.location.href = '/admin';
-                });
-            }
-        }
-        
-        // Check authentication on page load
-        if (!checkAuthentication()) {
-            // If authentication fails, stop script execution
-            throw new Error('Authentication required');
-        }
+        // Authentication removed - direct access allowed
         
         let currentEditId = null;
 
