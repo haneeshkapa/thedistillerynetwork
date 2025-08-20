@@ -32,8 +32,15 @@ class EnterpriseChatStoragePostgres {
         this.activeConversations = new Map(); // Hot cache for active distillation discussions
         this.dbPool = null;
         this.redis = null;
+        this.initialized = false;
+        this.initializationPromise = null;
         
-        this.initialize();
+        // Start initialization but don't wait for it to complete
+        this.initializationPromise = this.initialize().catch(error => {
+            console.error('❌ Enterprise chat storage initialization failed:', error);
+            this.initialized = false;
+            return null;
+        });
     }
 
     async initialize() {
@@ -70,6 +77,7 @@ class EnterpriseChatStoragePostgres {
             // Load recent active conversations
             await this.loadActiveConversations();
             
+            this.initialized = true;
             console.log('✅ Enterprise chat storage initialized for distillation expertise', {
                 activeConversations: this.activeConversations.size,
                 maxActiveConversations: this.config.maxActiveConversations
@@ -77,7 +85,9 @@ class EnterpriseChatStoragePostgres {
             
         } catch (error) {
             console.error('❌ Enterprise chat storage initialization failed:', error);
-            throw error;
+            this.initialized = false;
+            // Don't throw error to prevent server crash
+            return null;
         }
     }
 
@@ -120,6 +130,22 @@ class EnterpriseChatStoragePostgres {
      * Store a conversation message with distillation context
      */
     async storeMessage(phone, message, response, metadata = {}) {
+        // Wait for initialization to complete
+        if (!this.initialized && this.initializationPromise) {
+            try {
+                await this.initializationPromise;
+            } catch (error) {
+                // Initialization failed, return gracefully
+                console.log('⚠️ Storage not initialized, skipping message storage');
+                return { success: false, error: 'Storage not available' };
+            }
+        }
+        
+        if (!this.initialized) {
+            console.log('⚠️ PostgreSQL storage not available, skipping message storage');
+            return { success: false, error: 'Storage not initialized' };
+        }
+        
         const startTime = Date.now();
         
         try {
@@ -220,6 +246,22 @@ class EnterpriseChatStoragePostgres {
      * Get conversation history with distillation context
      */
     async getConversationHistory(phone, limit = 10) {
+        // Wait for initialization to complete
+        if (!this.initialized && this.initializationPromise) {
+            try {
+                await this.initializationPromise;
+            } catch (error) {
+                // Initialization failed, return empty history
+                console.log('⚠️ Storage not initialized, returning empty conversation history');
+                return [];
+            }
+        }
+        
+        if (!this.initialized) {
+            console.log('⚠️ PostgreSQL storage not available, returning empty conversation history');
+            return [];
+        }
+        
         const startTime = Date.now();
         
         try {
