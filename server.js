@@ -800,7 +800,21 @@ app.post('/reply', async (req, res) => {
     enterpriseMonitoring.trackSMS('received', { phone, messageLength: message.length, sender });
 
     // FIRST: Check if customer exists in database - BLOCK unknown numbers
-    const customer = await findCustomerByPhone(phone);
+    // Add 5-second timeout to customer lookup to prevent hanging
+    console.log(`🔍 Looking up customer: ${phone}`);
+    const customerLookupStart = Date.now();
+    
+    const customer = await Promise.race([
+      findCustomerByPhone(phone),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Customer lookup timeout after 5 seconds')), 5000)
+      )
+    ]).catch(error => {
+      console.log(`❌ Customer lookup failed: ${error.message} (${Date.now() - customerLookupStart}ms)`);
+      return null;
+    });
+    
+    console.log(`📊 Customer lookup completed in ${Date.now() - customerLookupStart}ms`);
     if (!customer) {
       logger.info('SMS ignored - phone number not found in customer database', { phone });
       enterpriseMonitoring.info('SMS ignored - unknown customer', { phone, reason: 'not_in_database' });
