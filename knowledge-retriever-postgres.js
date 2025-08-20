@@ -193,6 +193,14 @@ class KnowledgeRetrieverPostgres {
         }
     }
     
+    /**
+     * Get optimized knowledge for message processing (alias for getRelevantKnowledge)
+     * This method maintains compatibility with OptimizedReplyHandler
+     */
+    async getOptimizedKnowledge(message, maxResults = 5) {
+        return await this.getRelevantKnowledge(message, maxResults);
+    }
+    
     async searchByKeywords(queryWords, limit) {
         if (queryWords.length === 0) return [];
         
