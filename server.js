@@ -828,16 +828,33 @@ app.post('/reply', async (req, res) => {
     }
 
     // ENHANCED FEATURE 1: Intent Routing (bypass AI for simple queries) - ONLY for verified customers
-    const intentResponse = await intentRouter.routeQuery(message, phone);
+    console.log('🔍 Checking intent routing...');
+    const intentResponse = await Promise.race([
+      intentRouter.routeQuery(message, phone),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Intent router timeout')), 2000)
+      )
+    ]).catch(error => {
+      console.log(`⚠️ Intent router failed: ${error.message}`);
+      return null;
+    });
+    
     if (intentResponse) {
       logger.info('Intent routing provided response', { phone, intent: 'detected' });
       enterpriseMonitoring.trackCacheOperation('intent_router', true);
       
-      // Store in conversation graph
-      await conversationGraph.addConversationNode(phone, message, [], intentResponse, {
-        provider: 'intent_router',
-        processingTime: Date.now() - startTime,
-        cacheHit: true
+      // Store in conversation graph (with timeout)
+      Promise.race([
+        conversationGraph.addConversationNode(phone, message, [], intentResponse, {
+          provider: 'intent_router',
+          processingTime: Date.now() - startTime,
+          cacheHit: true
+        }),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Conversation graph timeout')), 2000)
+        )
+      ]).catch(error => {
+        console.log(`⚠️ Conversation graph storage failed: ${error.message}`);
       });
       
       // Track successful SMS response
@@ -847,8 +864,18 @@ app.post('/reply', async (req, res) => {
     }
 
     // ENHANCED FEATURE 2: Multi-tier cache check
+    console.log('🔍 Checking multi-tier cache...');
     const cacheKey = `${phone}:${message}`;
-    const cachedResponse = await multiTierCache.get(cacheKey, 'conversation');
+    const cachedResponse = await Promise.race([
+      multiTierCache.get(cacheKey, 'conversation'),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Cache timeout')), 3000)
+      )
+    ]).catch(error => {
+      console.log(`⚠️ Cache check failed: ${error.message}`);
+      return null;
+    });
+    
     if (cachedResponse) {
       logger.info('Cache hit - serving cached response', { phone });
       enterpriseMonitoring.trackCacheOperation('multi_tier_cache', true);
@@ -859,9 +886,15 @@ app.post('/reply', async (req, res) => {
     enterpriseMonitoring.trackCacheOperation('multi_tier_cache', false);
     
     // Try enterprise storage first, fallback to local if needed
+    console.log('🔍 Getting conversation history...');
     let conversationHistory = [];
     try {
-      conversationHistory = await enterpriseChatStorage.getConversationHistory(phone, 5);
+      conversationHistory = await Promise.race([
+        enterpriseChatStorage.getConversationHistory(phone, 5),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Enterprise storage timeout')), 3000)
+        )
+      ]);
       console.log(`📚 Retrieved ${conversationHistory.length} messages from enterprise storage`);
     } catch (error) {
       console.log(`⚠️  Enterprise storage retrieval failed, using local: ${error.message}`);
@@ -1005,10 +1038,25 @@ app.post('/reply', async (req, res) => {
     // const conversationContext = await conversationGraph.getAssociativeContext(phone, message);
     const conversationContext = null;
     
+    console.log('🔍 Calling Claude API...');
     const apiStartTime = Date.now();
-    const result = await optimizedReplyHandler.processMessage(message, phone, customerInfo, anthropic);
+    const result = await Promise.race([
+      optimizedReplyHandler.processMessage(message, phone, customerInfo, anthropic),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Claude API timeout after 20 seconds')), 20000)
+      )
+    ]).catch(error => {
+      console.log(`❌ Claude API call failed: ${error.message}`);
+      return { 
+        reply: "I apologize, but I'm experiencing technical difficulties right now. Please call us at (603) 997-6786 for immediate assistance with your distillation equipment questions!",
+        provider: 'fallback',
+        tokensUsed: 0,
+        confidence: 0.5
+      };
+    });
     const reply = result.reply;
     const apiResponseTime = Date.now() - apiStartTime;
+    console.log(`📊 Claude API completed in ${apiResponseTime}ms`);
     
     // Track API call
     enterpriseMonitoring.trackAPICall('claude', apiResponseTime, true);
@@ -1037,14 +1085,20 @@ app.post('/reply', async (req, res) => {
     console.log(`Generated reply: ${reply}`);
     
     // Store conversation in enterprise storage (PostgreSQL on Render, MySQL locally)
+    console.log('🔍 Storing conversation in enterprise storage...');
     try {
-      await enterpriseChatStorage.storeMessage(phone, message, reply, {
-        customerInfo: customerInfo,
-        provider: result.provider || 'claude',
-        processingTime: Date.now() - startTime,
-        confidence: result.confidence || null,
-        tokensUsed: result.tokensUsed || null
-      });
+      await Promise.race([
+        enterpriseChatStorage.storeMessage(phone, message, reply, {
+          customerInfo: customerInfo,
+          provider: result.provider || 'claude',
+          processingTime: Date.now() - startTime,
+          confidence: result.confidence || null,
+          tokensUsed: result.tokensUsed || null
+        }),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Enterprise storage timeout')), 3000)
+        )
+      ]);
       console.log(`✅ Conversation stored in enterprise storage`);
     } catch (error) {
       console.log(`⚠️  Enterprise storage failed, using local fallback: ${error.message}`);
