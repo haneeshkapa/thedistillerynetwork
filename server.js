@@ -741,28 +741,17 @@ app.post('/reply', async (req, res) => {
     // Track SMS received
     enterpriseMonitoring.trackSMS('received', { phone, messageLength: message.length, sender });
 
-    // FIRST: Check if customer exists in database
+    // FIRST: Check if customer exists in database - BLOCK unknown numbers
     const customer = await findCustomerByPhone(phone);
     if (!customer) {
-      logger.info('Phone number not found in customer database - sending helpful response', { phone });
-      enterpriseMonitoring.info('Unknown customer contacted', { phone, reason: 'not_in_database' });
+      logger.info('SMS ignored - phone number not found in customer database', { phone });
+      enterpriseMonitoring.info('SMS ignored - unknown customer', { phone, reason: 'not_in_database' });
       
-      // Send helpful response for unknown customers
-      const unknownCustomerResponse = `Hey there! I don't see this number in our customer database, but I'm happy to help! 
-
-If you've placed an order with American Copper Works, please call me at (603) 997-6786 or email tdnorders@gmail.com with your order details so I can look you up properly.
-
-If you're interested in our copper stills and distillation equipment, check out moonshinestills.com or give me a call - I love talking about the craft!`;
-
-      // Store this interaction
-      await enterpriseChatStorage.storeMessage(phone, message, unknownCustomerResponse, {
-        customerFound: false,
-        provider: 'unknown_customer_handler'
-      });
-
+      // Do NOT respond to unknown numbers - just log and ignore
       return res.json({ 
-        response: unknownCustomerResponse,
-        customerFound: false
+        message: 'Phone number not in customer database - no response sent',
+        customerFound: false,
+        ignored: true
       });
     }
 
@@ -2240,25 +2229,9 @@ app.delete('/admin/logs', requireAuth, (req, res) => {
 });
 
 // Initialize enterprise chat storage for distillation conversations
-let enterpriseChatStorage;
+// Enterprise chat storage already initialized above
 
-async function initializeEnterpriseStorage() {
-  try {
-    enterpriseChatStorage = new EnterpriseChatStorage({
-      maxActiveConversations: 1000,
-      maxMessagesPerCustomer: 50,
-      archiveAfterDays: 30
-    });
-    
-    // Wait for initialization to complete
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    console.log('✅ Enterprise distillation chat storage ready');
-    
-  } catch (error) {
-    console.error('❌ Enterprise storage initialization failed:', error);
-    console.log('⚠️ Falling back to basic chat storage');
-  }
-}
+// Enterprise storage initialization removed - already initialized above
 
 // Start server
 app.listen(port, async () => {
@@ -2267,7 +2240,7 @@ app.listen(port, async () => {
   // Initialize core components
   loadChatLogs(); // Load existing chat logs (fallback)
   await initializeGoogleSheets();
-  await initializeEnterpriseStorage(); // Add enterprise storage
+  // Enterprise storage already initialized
   await testClaudeAPI();
   
   // Initial startup complete - automated sync will handle Shopify data
