@@ -319,4 +319,4 @@ This SMS bot represents a production-ready, enterprise-grade customer service so
 - ✅ Multi-source data integration (Sheets, Shopify)
 - ✅ Cost-optimized prompt caching (56-61% efficiency)
 
-The system now provides intelligent, contextual customer service responses while respecting API limits and maintaining operational reliability.
+the system now provides intelligent, contextual customer service responses while respecting API limits and maintaining operational reliability.
