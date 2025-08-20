@@ -896,6 +896,9 @@ app.post('/reply', async (req, res) => {
         )
       ]);
       console.log(`📚 Retrieved ${conversationHistory.length} messages from enterprise storage`);
+      if (conversationHistory.length > 0) {
+        console.log(`📋 Sample conversation:`, conversationHistory[0]);
+      }
     } catch (error) {
       console.log(`⚠️  Enterprise storage retrieval failed, using local: ${error.message}`);
       conversationHistory = getConversationHistory(phone, 5); // Fallback to local storage
@@ -937,6 +940,7 @@ app.post('/reply', async (req, res) => {
     // Format conversation history
     let historyContext = '';
     if (conversationHistory.length > 0) {
+      console.log(`🔄 Building conversation context from ${conversationHistory.length} messages`);
       historyContext = '\n\nPREVIOUS CONVERSATION:\n';
       conversationHistory.forEach((msg, i) => {
         historyContext += `[${new Date(msg.timestamp).toLocaleString()}]\n`;
@@ -944,6 +948,9 @@ app.post('/reply', async (req, res) => {
         historyContext += `You: ${msg.botResponse}\n\n`;
       });
       historyContext += 'CURRENT MESSAGE:\n';
+      console.log(`📝 History context length: ${historyContext.length} characters`);
+    } else {
+      console.log(`📭 No conversation history found for phone: ${phone}`);
     }
     
     // Enhanced status information for better customer service responses
