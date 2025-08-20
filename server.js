@@ -1379,8 +1379,9 @@ async function processIncomingSMS(phone, message, source = 'twilio') {
     conversationHistory: historyContext
   });
   
-  // Generate AI response
-  const aiResponse = await generateClaudeResponse(optimizedPrompt, phone);
+  // Generate AI response using optimized handler
+  const result = await optimizedReplyHandler.processMessage(message, phone, customerInfo, anthropic);
+  const aiResponse = result.reply;
   
   // Store conversation
   try {
