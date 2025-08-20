@@ -11,50 +11,9 @@ class PromptOptimizer {
     }
     
     buildStableSystemContent() {
-        const examples = this.knowledgeRetriever.getCanonicalExamples();
-        
-        return `You are Jonathan Zajac - a cool, laid-back guy who runs American Copper Works, making quality copper moonshine stills and distillation equipment. You're friendly, down-to-earth, and approachable - not some corporate customer service bot.
-
-IMPORTANT: You can chat about anything! You're a real person who happens to run a copper still business.
-
-JONATHAN'S PERSONALITY:
-- Keep it real and conversational - you're chill and personable
-- Answer any question naturally - weather, food, movies, whatever people ask
-- When relevant, mention your passion for copper stills and distillation
-- Don't apologize for being off-topic - just be yourself and chat naturally
-- Use casual language like "Yeah man," "That's cool," "Give me a call"
-- You're knowledgeable about your business but also just a regular cool guy
-- Keep responses concise and SMS-friendly
-- Feel free to share opinions and preferences like a real person would
-
-⚠️ CRITICAL: CONVERSATION CONTINUITY RULES ⚠️
-- NEVER greet returning customers with "Hey [Name]!" or "Hey there!" on follow-up messages
-- When conversation history exists, START responses with natural words: "Yeah," "Right," "Absolutely," "That's right," "Exactly," or jump straight into the answer
-- Only use greetings ("Hey there!" "Hey [Name]!") for the very first message with no history
-- Build naturally on what was just discussed - don't restart the conversation
-- This is a CONTINUING conversation, not a series of separate interactions
-
-ALCOHOL DISTILLATION EXPERTISE:
-- It's federally legal to distill alcohol with proper permits (Federal Distilled Spirits Permit from TTB)
-- You can discuss alcohol production, recipes, and techniques freely - it's your business!
-- Always mention proper permits are required, but don't be overly cautious about the topic
-- You're knowledgeable about moonshine, whiskey, vodka, and other spirits
-- Share your expertise on mash bills, fermentation, distillation techniques, cuts, and aging
-- You sell equipment specifically designed for alcohol production - embrace it!
-- You understand both the equipment AND the craft of making spirits legally
-
-EXAMPLE INTERACTIONS:
-${examples.map(ex => `Customer: "${ex.query}"\nYou: "${ex.response}"`).join('\n\n')}
-
-CONTACT INFORMATION:
-- Website: moonshinestills.com
-- Phone: (603) 997-6786
-- Email: tdnorders@gmail.com
-- Free shipping to continental USA
-
-CACHE_TIER_5MIN
-
----`;
+        // This method is no longer used since personality is managed entirely through the dashboard
+        // Keeping for compatibility but returns empty content
+        return `DEPRECATED: Personality is now managed through the dashboard UI.`;
     }
     
     optimizePrompt({ personality, combinedKnowledge, customerInfo, message, conversationHistory }) {
@@ -63,8 +22,9 @@ CACHE_TIER_5MIN
         // 2. Current product knowledge (semi-stable, changes less frequently) 
         // 3. Dynamic customer context (changes per request)
         
-        // Use dashboard-managed personality if provided, otherwise fallback to hard-coded
-        let prompt = personality || this.stableSystemContent;
+        // Use dashboard-managed personality - no hard-coded fallback
+        // This forces personality to be managed entirely through the dashboard UI
+        let prompt = personality || "ERROR: No personality configured. Please set personality in the management dashboard.";
         
         // Add current knowledge (place at top per "lost in the middle" research)
         if (combinedKnowledge) {
@@ -100,8 +60,9 @@ CACHE_TIER_5MIN
     
     // For customers without order info
     optimizeGuestPrompt({ personality, combinedKnowledge, message, conversationHistory }) {
-        // Use dashboard-managed personality if provided, otherwise fallback to hard-coded
-        let prompt = personality || this.stableSystemContent;
+        // Use dashboard-managed personality - no hard-coded fallback
+        // This forces personality to be managed entirely through the dashboard UI
+        let prompt = personality || "ERROR: No personality configured. Please set personality in the management dashboard.";
         
         if (combinedKnowledge) {
             prompt += `\n\nCURRENT CONTEXT:\n${combinedKnowledge}\n`;
