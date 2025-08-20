@@ -15,6 +15,8 @@ const ShopifyService = require('./shopify-service');
 const EnhancedSheetsService = require('./enhanced-sheets-service');
 const logger = require('./logger');
 const EnhancedRateLimiter = require('./enhanced-rate-limiter');
+// Use PostgreSQL knowledge retriever on Render, file-based locally
+const KnowledgeRetrieverPostgres = require('./knowledge-retriever-postgres');
 const AdvancedKnowledgeRetriever = require('./advanced-retriever');
 const PromptOptimizer = require('./prompt-optimizer');
 const SmartRouter = require('./smart-router');
@@ -557,7 +559,10 @@ async function testClaudeAPI() {
 const shopifyService = new ShopifyService();
 const enhancedSheetsService = new EnhancedSheetsService();
 const claudeRateLimiter = new EnhancedRateLimiter();
-const knowledgeRetriever = new AdvancedKnowledgeRetriever();
+// Initialize knowledge retriever based on environment
+const knowledgeRetriever = process.env.DATABASE_URL ? 
+    new KnowledgeRetrieverPostgres() : 
+    new AdvancedKnowledgeRetriever();
 const promptOptimizer = new PromptOptimizer(knowledgeRetriever);
 const smartRouter = new SmartRouter();
 const responseTemplates = new ResponseTemplates();
@@ -2392,6 +2397,142 @@ app.delete('/admin/logs', requireAuth, (req, res) => {
     res.status(500).json({ error: 'Failed to clear logs' });
   }
 });
+
+// Knowledge Base Management API Endpoints (PostgreSQL)
+// Only available when using PostgreSQL knowledge retriever
+if (process.env.DATABASE_URL) {
+  
+  // Get all knowledge base entries
+  app.get('/admin/knowledge', requireAuth, async (req, res) => {
+    try {
+      const { includeInactive } = req.query;
+      const knowledge = await knowledgeRetriever.getAllKnowledge(includeInactive === 'true');
+      res.json({
+        success: true,
+        knowledge
+      });
+    } catch (error) {
+      logger.error('Failed to get knowledge base', { error: error.message });
+      res.status(500).json({ error: 'Failed to retrieve knowledge base' });
+    }
+  });
+  
+  // Add new knowledge entry
+  app.post('/admin/knowledge', requireAuth, async (req, res) => {
+    try {
+      const { category, title, content, keywords = [], priority = 5 } = req.body;
+      
+      if (!category || !title || !content) {
+        return res.status(400).json({ error: 'Category, title, and content are required' });
+      }
+      
+      const result = await knowledgeRetriever.addKnowledge(
+        category, 
+        title, 
+        content, 
+        Array.isArray(keywords) ? keywords : keywords.split(',').map(k => k.trim()),
+        parseInt(priority) || 5,
+        'admin'
+      );
+      
+      logger.info('Knowledge added via dashboard', { id: result.id, title, category });
+      
+      res.json({
+        success: true,
+        id: result.id,
+        created_at: result.created_at
+      });
+    } catch (error) {
+      logger.error('Failed to add knowledge', { error: error.message });
+      res.status(500).json({ error: 'Failed to add knowledge entry' });
+    }
+  });
+  
+  // Update knowledge entry
+  app.put('/admin/knowledge/:id', requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const updates = req.body;
+      
+      // Clean up keywords if provided
+      if (updates.keywords && !Array.isArray(updates.keywords)) {
+        updates.keywords = updates.keywords.split(',').map(k => k.trim());
+      }
+      
+      const result = await knowledgeRetriever.updateKnowledge(
+        parseInt(id), 
+        updates, 
+        'admin'
+      );
+      
+      logger.info('Knowledge updated via dashboard', { id, updates: Object.keys(updates) });
+      
+      res.json({
+        success: true,
+        id: result.id,
+        updated_at: result.updated_at
+      });
+    } catch (error) {
+      logger.error('Failed to update knowledge', { error: error.message, id: req.params.id });
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // Delete knowledge entry (soft delete)
+  app.delete('/admin/knowledge/:id', requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const result = await knowledgeRetriever.deleteKnowledge(parseInt(id), 'admin');
+      
+      logger.info('Knowledge deleted via dashboard', { id, title: result.title });
+      
+      res.json({
+        success: true,
+        id: result.id,
+        title: result.title
+      });
+    } catch (error) {
+      logger.error('Failed to delete knowledge', { error: error.message, id: req.params.id });
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // Get knowledge base statistics
+  app.get('/admin/knowledge/stats', requireAuth, async (req, res) => {
+    try {
+      const stats = await knowledgeRetriever.getKnowledgeStats();
+      res.json({
+        success: true,
+        stats
+      });
+    } catch (error) {
+      logger.error('Failed to get knowledge stats', { error: error.message });
+      res.status(500).json({ error: 'Failed to get knowledge statistics' });
+    }
+  });
+  
+  // Test knowledge search
+  app.post('/admin/knowledge/search', requireAuth, async (req, res) => {
+    try {
+      const { query, maxResults = 5 } = req.body;
+      
+      if (!query) {
+        return res.status(400).json({ error: 'Query is required' });
+      }
+      
+      const results = await knowledgeRetriever.getRelevantKnowledge(query, maxResults);
+      
+      res.json({
+        success: true,
+        query,
+        results
+      });
+    } catch (error) {
+      logger.error('Failed to search knowledge', { error: error.message });
+      res.status(500).json({ error: 'Failed to search knowledge base' });
+    }
+  });
+}
 
 // Initialize enterprise chat storage for distillation conversations
 // Enterprise chat storage already initialized above

@@ -1,0 +1,239 @@
+name: Deploy to Bluehost Production
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+
+env:
+  NODE_VERSION: '18'
+  DEPLOY_PATH: '/var/www/html/sms-bot'
+  PM2_APP_NAME: 'sms-bot'
+
+jobs:
+  deploy:
+    name: 🚀 Deploy to Bluehost
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📂 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: 🏷️ Get Version Info
+        id: version
+        run: |
+          echo "commit_hash=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "branch_name=$(git rev-parse --abbrev-ref HEAD)" >> $GITHUB_OUTPUT
+          echo "timestamp=$(date -u +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
+      
+      - name: 📦 Create Deployment Package
+        run: |
+          # Create deployment directory
+          mkdir -p deployment-package
+          
+          # Copy essential application files
+          cp -r \
+            server.js \
+            package.json \
+            package-lock.json \
+            ecosystem.config.js \
+            enterprise-chat-storage.js \
+            hybrid-vector-retriever.js \
+            enterprise-monitoring.js \
+            optimized-reply-handler.js \
+            shopify-service.js \
+            cache-optimizer.js \
+            migrate-chat-storage.js \
+            logger.js \
+            setup/ \
+            data/ \
+            deployment-package/
+          
+          # Create production environment template
+          cp .env.production.template deployment-package/.env.production.template
+          
+          # Create deployment metadata
+          cat > deployment-package/deployment-info.json << EOF
+          {
+            "deploymentTime": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "gitCommit": "${{ steps.version.outputs.commit_hash }}",
+            "gitBranch": "${{ steps.version.outputs.branch_name }}",
+            "version": "${{ steps.version.outputs.timestamp }}",
+            "deployedBy": "GitHub Actions",
+            "deployedFrom": "${{ github.server_url }}/${{ github.repository }}",
+            "workflowRun": "${{ github.run_id }}"
+          }
+          EOF
+          
+          # Create logs directory
+          mkdir -p deployment-package/logs
+          
+          # Create archive
+          tar -czf sms-bot-${{ steps.version.outputs.timestamp }}.tar.gz deployment-package/
+          
+          echo "PACKAGE_NAME=sms-bot-${{ steps.version.outputs.timestamp }}.tar.gz" >> $GITHUB_ENV
+      
+      - name: 🔐 Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.BLUEHOST_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.BLUEHOST_HOST }} >> ~/.ssh/known_hosts
+      
+      - name: 📤 Upload Package to Server
+        run: |
+          scp ${{ env.PACKAGE_NAME }} ${{ secrets.BLUEHOST_USER }}@${{ secrets.BLUEHOST_HOST }}:/tmp/
+      
+      - name: 🚀 Deploy on Server
+        run: |
+          ssh ${{ secrets.BLUEHOST_USER }}@${{ secrets.BLUEHOST_HOST }} << 'EOF'
+            set -e
+            
+            echo "🔧 Starting deployment..."
+            
+            # Colors for output
+            GREEN='\033[0;32m'
+            YELLOW='\033[1;33m'
+            RED='\033[0;31m'
+            NC='\033[0m'
+            
+            # Configuration
+            DEPLOY_PATH="${{ env.DEPLOY_PATH }}"
+            PACKAGE_NAME="${{ env.PACKAGE_NAME }}"
+            BACKUP_DIR="/var/backups/sms-bot"
+            
+            # Create backup of current deployment
+            if [[ -d "$DEPLOY_PATH" ]]; then
+              echo -e "${YELLOW}📦 Creating backup...${NC}"
+              sudo mkdir -p $BACKUP_DIR
+              sudo tar -czf "$BACKUP_DIR/backup-$(date +%Y%m%d-%H%M%S).tar.gz" -C "$(dirname $DEPLOY_PATH)" "$(basename $DEPLOY_PATH)" || true
+              echo "✅ Backup created"
+            fi
+            
+            # Extract deployment package
+            cd /tmp
+            echo -e "${GREEN}📂 Extracting deployment package...${NC}"
+            tar -xzf $PACKAGE_NAME
+            
+            # Stop application gracefully
+            echo -e "${YELLOW}🛑 Stopping application...${NC}"
+            pm2 stop ${{ env.PM2_APP_NAME }} || echo "Application not running"
+            
+            # Update application files
+            echo -e "${GREEN}📋 Updating application files...${NC}"
+            sudo mkdir -p $DEPLOY_PATH
+            sudo cp -r deployment-package/* $DEPLOY_PATH/
+            
+            # Preserve environment file if it exists
+            if [[ -f "$DEPLOY_PATH/.env.production" ]]; then
+              echo "✅ Preserving existing environment configuration"
+            else
+              echo -e "${YELLOW}⚠️  No environment file found. You may need to configure .env.production${NC}"
+            fi
+            
+            # Set proper permissions
+            sudo chown -R apache:apache $DEPLOY_PATH || sudo chown -R www-data:www-data $DEPLOY_PATH
+            sudo chmod 755 $DEPLOY_PATH
+            sudo chmod 644 $DEPLOY_PATH/*.js
+            sudo chmod 600 $DEPLOY_PATH/.env.production 2>/dev/null || true
+            
+            # Install/update dependencies
+            echo -e "${GREEN}📥 Installing dependencies...${NC}"
+            cd $DEPLOY_PATH
+            npm install --production --no-optional
+            
+            # Run database migrations if needed
+            echo -e "${GREEN}🗄️ Checking database migrations...${NC}"
+            node migrate-chat-storage.js verify || echo "Migration check skipped"
+            
+            # Restart application
+            echo -e "${GREEN}🔄 Restarting application...${NC}"
+            pm2 start ecosystem.config.js --env production
+            pm2 save
+            
+            # Wait for application to start
+            sleep 5
+            
+            # Health check
+            echo -e "${GREEN}🔍 Performing health check...${NC}"
+            if curl -f http://localhost:3000/health > /dev/null 2>&1; then
+              echo -e "${GREEN}✅ Application is healthy${NC}"
+            else
+              echo -e "${RED}❌ Health check failed${NC}"
+              pm2 logs ${{ env.PM2_APP_NAME }} --lines 20
+              exit 1
+            fi
+            
+            # Cleanup
+            rm -f /tmp/$PACKAGE_NAME
+            rm -rf /tmp/deployment-package
+            
+            echo -e "${GREEN}🎉 Deployment completed successfully!${NC}"
+            pm2 status
+          EOF
+      
+      - name: 🔍 Verify Deployment
+        run: |
+          # Wait a moment for services to stabilize
+          sleep 10
+          
+          # Test application endpoints
+          ssh ${{ secrets.BLUEHOST_USER }}@${{ secrets.BLUEHOST_HOST }} << 'EOF'
+            echo "🔍 Testing application endpoints..."
+            
+            # Test health endpoint
+            if curl -f http://localhost:3000/health; then
+              echo "✅ Health check passed"
+            else
+              echo "❌ Health check failed"
+              exit 1
+            fi
+            
+            # Test admin endpoint
+            if curl -f http://localhost:3000/admin/status; then
+              echo "✅ Admin panel accessible"
+            else
+              echo "⚠️ Admin panel may not be accessible"
+            fi
+            
+            # Check PM2 status
+            pm2 status | grep ${{ env.PM2_APP_NAME }}
+            
+            # Show recent logs
+            echo "📋 Recent logs:"
+            pm2 logs ${{ env.PM2_APP_NAME }} --lines 10 --nostream
+          EOF
+      
+      - name: 📱 Test SMS Functionality (Optional)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "SMS functionality test would require Twilio credentials"
+          echo "Manual testing recommended after deployment"
+      
+      - name: 🎉 Deployment Success Notification
+        if: success()
+        run: |
+          echo "🎉 Deployment to Bluehost completed successfully!"
+          echo "📋 Deployment Details:"
+          echo "  - Commit: ${{ steps.version.outputs.commit_hash }}"
+          echo "  - Branch: ${{ steps.version.outputs.branch_name }}"
+          echo "  - Timestamp: ${{ steps.version.outputs.timestamp }}"
+          echo "  - Server: ${{ secrets.BLUEHOST_HOST }}"
+      
+      - name: ❌ Deployment Failure Notification
+        if: failure()
+        run: |
+          echo "❌ Deployment failed!"
+          echo "Check the logs above for details."
+          echo "You may need to manually investigate on the server."
