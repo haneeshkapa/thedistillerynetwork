@@ -972,53 +972,6 @@ CONTACT INFORMATION:
       console.log(`📭 No conversation history found for phone: ${phone}`);
     }
     
-    // Enhanced status information for better customer service responses
-    let statusContext = '';
-    if (customerStatusInfo && customerStatusInfo.status) {
-        const status = customerStatusInfo.status;
-      statusContext = `\n\nORDER STATUS INFORMATION:
-- Current Status: ${status.label}
-- Priority Level: ${status.priority}
-- Recommended Action: ${status.action}
-- Status Color: ${customerStatusInfo.statusColor || 'N/A'}`;
-      
-      // Add specific guidance based on status
-      switch (status.status) {
-        case 'wants_cancel':
-          statusContext += '\n- IMPORTANT: Customer wants to cancel - handle with urgency and empathy';
-          break;
-        case 'important_antsy':
-          statusContext += '\n- IMPORTANT: Customer is anxious and calling frequently - provide reassurance and detailed updates';
-          break;
-        case 'call_for_update':
-          statusContext += '\n- NOTE: Customer needs an update - provide clear status information';
-          break;
-        case 'in_process':
-          statusContext += '\n- NOTE: Order is being processed - provide timeline if available';
-          break;
-        case 'shipped':
-          statusContext += '\n- NOTE: Order has shipped - provide tracking information if available';
-          break;
-      }
-    }
-
-    prompt = promptOptimizer.optimizePrompt({
-      personality,
-      combinedKnowledge,
-      customerInfo: { name, customerPhone, orderId, product, created, email, statusContext },
-      message,
-      conversationHistory: historyContext
-    });
-
-    // Log prompt metrics
-    const promptMetrics = promptOptimizer.getPromptMetrics(prompt);
-    logger.info('Sending request to Claude API', { 
-      phone,
-      messageLength: message.length,
-      promptMetrics,
-      queueStatus: claudeRateLimiter.getStatus()
-    });
-    
     // Prepare customer info for optimized handler
     let finalStatusContext = '';
     if (customer && customerStatusInfo && customerStatusInfo.status) {
@@ -1367,39 +1320,9 @@ async function processIncomingSMS(phone, message, source = 'twilio') {
     console.log(`📭 No conversation history found for phone: ${phone}`);
   }
   
-  // Get personality from storage
-  let personality = loadPersonalityFromStorage();
+  // Note: AI response generation and conversation storage happens in the proper flow below
   
-  // Create optimized prompt
-  const optimizedPrompt = promptOptimizer.optimizePrompt({
-    personality,
-    combinedKnowledge,
-    customerInfo,
-    message,
-    conversationHistory: historyContext
-  });
-  
-  // Generate AI response using optimized handler
-  const result = await optimizedReplyHandler.processMessage(message, phone, customerInfo, anthropic);
-  const aiResponse = result.reply;
-  
-  // Store conversation
-  try {
-    await enterpriseChatStorage.storeMessage(phone, message, aiResponse, {
-      customerInfo,
-      source,
-      processingTime: Date.now() - Date.now()
-    });
-  } catch (error) {
-    console.log(`⚠️ Failed to store conversation: ${error.message}`);
-  }
-  
-  return {
-    message: aiResponse,
-    customerInfo,
-    context: conversationHistory.length > 0 ? 'Continuing conversation' : 'New conversation'
-  };
-}
+  // Continue to customerInfo definition and proper processing...
 
 // Enhanced system stats endpoint
 app.get('/stats', async (req, res) => {
