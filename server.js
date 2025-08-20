@@ -807,17 +807,19 @@ app.post('/reply', async (req, res) => {
     const personality = personalityText || process.env.CLAUDE_PERSONALITY || "You are Jonathan from American Copper Works, expert in alcohol distillation and copper stills";
     const envKnowledge = process.env.CLAUDE_KNOWLEDGE || "";
     
-    // Get optimized knowledge with hybrid vector retrieval
-    const hybridResults = await hybridVectorRetriever.hybridSearch(message, {
-      limit: 5,
-      semanticWeight: 0.6,
-      bm25Weight: 0.4,
-      minSemanticSimilarity: 0.7
-    });
+    // TEMPORARY: Skip hybrid vector retrieval to prevent hanging (requires local MySQL/Redis)
+    // const hybridResults = await hybridVectorRetriever.hybridSearch(message, {
+    //   limit: 5,
+    //   semanticWeight: 0.6,
+    //   bm25Weight: 0.4,
+    //   minSemanticSimilarity: 0.7
+    // });
+    const hybridResults = []; // Empty for now
     
-    const relevantKnowledge = hybridResults.map(result => {
-      return `[${result.category}] ${result.content} (Score: ${result.similarity?.toFixed(2) || 'N/A'}, Type: ${result.searchType})`;
-    }).join('\n\n');
+    // const relevantKnowledge = hybridResults.map(result => {
+    //   return `[${result.category}] ${result.content} (Score: ${result.similarity?.toFixed(2) || 'N/A'}, Type: ${result.searchType})`;
+    // }).join('\n\n');
+    const relevantKnowledge = '';
     
     const combinedKnowledge = [envKnowledge, relevantKnowledge].filter(k => k).join('\n\n');
     
@@ -921,8 +923,9 @@ app.post('/reply', async (req, res) => {
     } : null;
     
     // Use optimized reply handler with all optimizations
-    // ENHANCED FEATURE 3: Get conversation context from graph
-    const conversationContext = await conversationGraph.getAssociativeContext(phone, message);
+    // TEMPORARY: Skip conversation graph to prevent hanging (requires local database)
+    // const conversationContext = await conversationGraph.getAssociativeContext(phone, message);
+    const conversationContext = null;
     
     const apiStartTime = Date.now();
     const result = await optimizedReplyHandler.processMessage(message, phone, customerInfo, anthropic);
@@ -932,17 +935,18 @@ app.post('/reply', async (req, res) => {
     // Track API call
     enterpriseMonitoring.trackAPICall('claude', apiResponseTime, true);
     
-    // ENHANCED FEATURE 4: Cache the response
-    await multiTierCache.set(cacheKey, reply, 'conversation', 3600); // Cache for 1 hour
+    // TEMPORARY: Skip cache and conversation graph storage to prevent hanging
+    // await multiTierCache.set(cacheKey, reply, 'conversation', 3600); // Cache for 1 hour
+    console.log(`⚡ Skipping cache storage for faster response`);
     
-    // ENHANCED FEATURE 5: Store in conversation graph with metadata
-    await conversationGraph.addConversationNode(phone, message, [], reply, {
-      provider: result.provider || 'claude',
-      processingTime: Date.now() - startTime,
-      tokensUsed: result.tokensUsed || 0,
-      confidence: result.confidence || 0.8,
-      cacheHit: false
-    });
+    // await conversationGraph.addConversationNode(phone, message, [], reply, {
+    //   provider: result.provider || 'claude',
+    //   processingTime: Date.now() - startTime,
+    //   tokensUsed: result.tokensUsed || 0,
+    //   confidence: result.confidence || 0.8,
+    //   cacheHit: false
+    // });
+    console.log(`⚡ Skipping conversation graph storage for faster response`);
     
     logger.info('Enhanced AI response generated', { 
       phone,
@@ -954,14 +958,15 @@ app.post('/reply', async (req, res) => {
     
     console.log(`Generated reply: ${reply}`);
     
-    // Store conversation in enterprise storage
-    await enterpriseChatStorage.storeMessage(phone, message, reply, {
-      customerInfo: customerInfo,
-      provider: result.provider || 'claude',
-      processingTime: Date.now() - startTime,
-      confidence: result.confidence || null,
-      tokensUsed: result.tokensUsed || null
-    });
+    // TEMPORARY: Skip enterprise storage to prevent hanging (PostgreSQL might be slow)
+    // await enterpriseChatStorage.storeMessage(phone, message, reply, {
+    //   customerInfo: customerInfo,
+    //   provider: result.provider || 'claude',
+    //   processingTime: Date.now() - startTime,
+    //   confidence: result.confidence || null,
+    //   tokensUsed: result.tokensUsed || null
+    // });
+    console.log(`⚡ Skipping enterprise storage for faster response`);
     
     // Also log in old system for backward compatibility (during migration)
     logChatMessage(phone, message, reply, customerInfo);
