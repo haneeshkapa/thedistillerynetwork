@@ -1048,17 +1048,6 @@ app.post('/tasker/sms', async (req, res) => {
 async function processIncomingSMS(phone, message, source = 'twilio') {
   console.log(`🚀 Starting processIncomingSMS for phone: ${phone}, message: "${message.substring(0, 50)}..."`);
   
-  // Complete bypass for problematic customer to test system isolation
-  if (phone === '9786778131' || phone === '+19786778131') {
-    console.log(`🔧 COMPLETE BYPASS FOR 9786778131 - RETURNING HARDCODED RESPONSE`);
-    return {
-      message: "Hey! I'm Jonathan from American Copper Works. Thanks for reaching out! I'd be happy to help you with our copper stills. Call us at (603) 997-6786 for personalized assistance.",
-      customerInfo: null,
-      provider: 'hardcoded_bypass',
-      success: true,
-      context: 'Bypass mode for debugging'
-    };
-  }
   
   let customerInfo = null;
   let conversationHistory = [];
@@ -1067,19 +1056,13 @@ async function processIncomingSMS(phone, message, source = 'twilio') {
   try {
     console.log(`🔍 Step 1: Customer lookup starting for ${phone}`);
     
-    // Temporary bypass for problematic customer to test if issue is in lookup
-    if (phone === '9786778131' || phone === '+19786778131') {
-      console.log(`🔧 TEMPORARILY BYPASSING CUSTOMER LOOKUP FOR 9786778131`);
-      customerInfo = null; // Skip lookup to test if that's the issue
-    } else {
-      // Customer lookup with reduced timeout for faster fallback
-      customerInfo = await Promise.race([
-        findCustomerByPhone(phone),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Customer lookup timeout')), 5000)
-        )
-      ]);
-    }
+    // Customer lookup with reduced timeout for faster fallback
+    customerInfo = await Promise.race([
+      findCustomerByPhone(phone),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Customer lookup timeout')), 5000)
+      )
+    ]);
     
     // Special debugging for the problematic customer
     if (phone === '9786778131' || phone === '+19786778131') {
