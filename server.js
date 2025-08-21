@@ -1005,7 +1005,13 @@ app.post('/tasker/sms', async (req, res) => {
         error: 'Failed to process SMS', 
         message: response.message || 'Sorry, I\'m having trouble right now. Please try again in a moment.',
         processing_time: processingTime,
-        details: response.errorDetails || 'Internal processing error'
+        details: response.errorDetails || 'Internal processing error',
+        debug_info: {
+          has_customer: !!response.customerInfo,
+          provider: response.provider || 'unknown',
+          context: response.context || 'unknown',
+          step_failed: response.error || 'unknown step'
+        }
       });
     }
     
