@@ -325,9 +325,10 @@ app.post('/reply', async (req, res) => {
       if (customer && customer._rawData) {
         // Extract order information from Google Sheets row
         const rowData = customer._rawData;
-        const orderDate = rowData[0] || '';
+        const orderId = rowData[0] || '';
+        const productOrdered = rowData[1] || '';
         const customerName = rowData[2] || '';
-        const productOrdered = rowData[3] || '';
+        const orderDate = rowData[3] || '';
         const orderStatus = rowData[4] || '';
         const trackingInfo = rowData[5] || '';
         
@@ -384,11 +385,12 @@ app.post('/reply', async (req, res) => {
         
         orderInfo = `\n\nCUSTOMER ORDER INFORMATION:\n`;
         orderInfo += `Customer: ${customerName}\n`;
+        if (orderId) orderInfo += `Order ID: ${orderId}\n`;
         if (orderDate) orderInfo += `Order Date: ${orderDate}\n`;
-        if (productOrdered) orderInfo += `Product: ${productOrdered}\n`;
-        orderInfo += `Status: ${statusDescription}\n`;
+        if (productOrdered) orderInfo += `Product Ordered: ${productOrdered}\n`;
+        orderInfo += `Current Status: ${statusDescription}\n`;
         if (trackingInfo) orderInfo += `Tracking: ${trackingInfo}\n`;
-        orderInfo += `\nCOLOR CODE STATUS: ${statusColor} = ${statusDescription}\n`;
+        orderInfo += `\nIMPORTANT: You have full access to the customer's product details above. Always include the specific product name when discussing their order.\n`;
         
         await logEvent('info', `Order status lookup successful for ${phone}: ${statusDescription} (${statusColor})`);
       } else {
