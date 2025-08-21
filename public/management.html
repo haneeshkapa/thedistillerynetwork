@@ -103,10 +103,12 @@
 
     <!-- Knowledge Base Section -->
     <div class="section">
-      <h2>📚 Knowledge Base</h2>
+      <h2>📚 Knowledge Base (PostgreSQL)</h2>
+      <p><strong>All knowledge stored in PostgreSQL database</strong> - No local JSON files</p>
       <div style="margin-bottom: 15px;">
         <button id="sync-shopify-btn" class="btn-success">🔄 Sync from Shopify</button>
         <button id="refresh-knowledge-btn" class="btn-secondary">Refresh Knowledge</button>
+        <span id="sync-status" style="margin-left: 10px; font-weight: bold;"></span>
       </div>
       
       <h3>Add New Knowledge Entry</h3>
@@ -386,28 +388,42 @@ document.getElementById('add-kb-btn').onclick = async () => {
 
 // Sync Shopify button
 document.getElementById('sync-shopify-btn').onclick = async () => {
-  if (!confirm('Fetch latest products from Shopify and update knowledge base?')) {
+  if (!confirm('Fetch latest products from Shopify and sync to PostgreSQL database?')) {
     return;
   }
   
   const btn = document.getElementById('sync-shopify-btn');
+  const statusEl = document.getElementById('sync-status');
+  
   btn.disabled = true;
   btn.textContent = '🔄 Syncing...';
+  statusEl.textContent = 'Connecting to Shopify...';
+  statusEl.style.color = '#ffc107';
   
   try {
+    const startTime = Date.now();
     const res = await fetch('/api/sync-shopify', { method: 'POST' });
     const data = await res.json();
+    const syncTime = ((Date.now() - startTime) / 1000).toFixed(1);
     
     if (res.ok) {
-      alert(`Synced ${data.count || 0} products from Shopify successfully!`);
+      statusEl.textContent = `✅ ${data.count || 0} products synced in ${syncTime}s`;
+      statusEl.style.color = '#28a745';
       loadKnowledge();
       loadStats();
+      
+      // Clear status after 5 seconds
+      setTimeout(() => {
+        statusEl.textContent = '';
+      }, 5000);
     } else {
-      alert('Sync failed: ' + (data.error || 'Unknown error'));
+      statusEl.textContent = `❌ Sync failed: ${data.error || 'Unknown error'}`;
+      statusEl.style.color = '#dc3545';
     }
   } catch (error) {
     console.error('Sync failed:', error);
-    alert('Sync failed: ' + error.message);
+    statusEl.textContent = `❌ Sync failed: ${error.message}`;
+    statusEl.style.color = '#dc3545';
   } finally {
     btn.disabled = false;
     btn.textContent = '🔄 Sync from Shopify';
