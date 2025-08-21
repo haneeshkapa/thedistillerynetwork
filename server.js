@@ -1052,6 +1052,9 @@ async function processIncomingSMS(phone, message, source = 'twilio') {
   let conversationHistory = [];
   let combinedKnowledge = '';
   
+  // Wrap entire function in try-catch to ensure no uncaught exceptions
+  try {
+  
   try {
     console.log(`🔍 Step 1: Customer lookup starting for ${phone}`);
     // Customer lookup with reduced timeout for faster fallback
@@ -1184,6 +1187,22 @@ Respond in a conversational, helpful manner. Keep responses concise and SMS-frie
       error: error.message,
       errorDetails: process.env.NODE_ENV === 'development' ? error.stack : error.message,
       context: 'Error fallback'
+    };
+  }
+  
+  } catch (uncaughtError) {
+    // Catch any uncaught errors in processIncomingSMS
+    console.error(`💥 UNCAUGHT ERROR in processIncomingSMS for phone ${phone}:`, uncaughtError);
+    console.error(`💥 Stack trace:`, uncaughtError.stack);
+    
+    return {
+      message: "I apologize, but I'm experiencing technical difficulties right now. Please call us at (603) 997-6786 for immediate assistance!",
+      customerInfo: null,
+      provider: 'emergency_fallback',
+      success: false,
+      error: `Uncaught error: ${uncaughtError.message}`,
+      errorDetails: uncaughtError.stack,
+      context: 'Uncaught exception handler'
     };
   }
 }
