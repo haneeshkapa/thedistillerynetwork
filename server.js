@@ -513,6 +513,7 @@ app.post('/reply', async (req, res) => {
     );
 
     await logEvent('info', `Sending AI response to ${phone}: "${aiResponse}"`);
+    // Send plain text for Tasker integration
     res.status(200).send(aiResponse);
 
   } catch (err) {

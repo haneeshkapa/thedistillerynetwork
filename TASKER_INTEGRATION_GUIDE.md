@@ -219,7 +219,9 @@ Mark urgent messages:
 }
 ```
 
-## Example Complete Tasker Profile Export
+## FIXED: Complete Tasker Profile Export (Simplified)
+
+This configuration removes problematic nested IF conditions and ensures SMS sending works reliably:
 
 ```xml
 <TaskerData sr="" dvi="1" tv="6.0.9">
@@ -228,7 +230,7 @@ Mark urgent messages:
     <edate>1642234567890</edate>
     <id>2</id>
     <mid0>3</mid0>
-    <nme>SMS to AI Bot</nme>
+    <nme>AI SMS Response</nme>
     <Event sr="con0" ve="2">
       <code>5</code>
       <pri>0</pri>
@@ -242,8 +244,9 @@ Mark urgent messages:
     <cdate>1642234567890</cdate>
     <edate>1642234567890</edate>
     <id>3</id>
-    <nme>Forward SMS to AI</nme>
+    <nme>AI SMS Response</nme>
     
+    <!-- Step 1: Send HTTP Request -->
     <Action sr="act0" ve="7">
       <code>339</code>
       <Str sr="arg0" ve="3">thedistillerynetwork.onrender.com</Str>
@@ -252,20 +255,117 @@ Mark urgent messages:
       <Str sr="arg3" ve="3">{"phone":"%SMSRF","text":"%SMSRB"}</Str>
       <Str sr="arg4" ve="3"></Str>
       <Str sr="arg5" ve="3"></Str>
-      <Int sr="arg6" val="30"/>
+      <Int sr="arg6" val="60"/>
+      <Int sr="arg7" val="0"/>
+      <Str sr="arg8" ve="3"></Str>
+      <Str sr="arg9" ve="3"></Str>
     </Action>
     
+    <!-- Step 2: Wait for response -->
     <Action sr="act1" ve="7">
-      <code>547</code>
-      <Str sr="arg0" ve="3">AI_Response</Str>
-      <Str sr="arg1" ve="3">%HTTPD</Str>
+      <code>30</code>
+      <Int sr="arg0" val="2"/>
+      <Int sr="arg1" val="0"/>
+      <Int sr="arg2" val="0"/>
+      <Int sr="arg3" val="0"/>
+      <Int sr="arg4" val="0"/>
     </Action>
     
+    <!-- Step 3: Check if response is not __IGNORE__ and send SMS -->
     <Action sr="act2" ve="7">
-      <code>548</code>
-      <Str sr="arg0" ve="3">AI suggests: %AI_Response</Str>
-      <Int sr="arg1" val="1"/>
+      <code>37</code>
+      <ConditionList sr="if">
+        <Condition sr="c0" ve="3">
+          <lhs>%HTTPD</lhs>
+          <op>12</op>
+          <rhs>__IGNORE__</rhs>
+        </Condition>
+      </ConditionList>
     </Action>
+    
+    <!-- Step 4: Send SMS (only if not ignored) -->
+    <Action sr="act3" ve="7">
+      <code>12</code>
+      <Str sr="arg0" ve="3">%SMSRF</Str>
+      <Str sr="arg1" ve="3">%HTTPD</Str>
+      <Int sr="arg2" val="0"/>
+      <Int sr="arg3" val="0"/>
+    </Action>
+    
+    <!-- Step 5: End IF -->
+    <Action sr="act4" ve="7">
+      <code>43</code>
+    </Action>
+    
+    <!-- Step 6: Show notification for debugging -->
+    <Action sr="act5" ve="7">
+      <code>548</code>
+      <Str sr="arg0" ve="3">SMS Bot: Response processed</Str>
+      <Int sr="arg1" val="0"/>
+    </Action>
+    
+  </Task>
+</TaskerData>
+```
+
+## Alternative: Even Simpler Version (Always Sends)
+
+If you want to eliminate all IF conditions for testing:
+
+```xml
+<TaskerData sr="" dvi="1" tv="6.0.9">
+  <Profile sr="prof2" ve="2">
+    <cdate>1642234567890</cdate>
+    <edate>1642234567890</edate>
+    <id>2</id>
+    <mid0>3</mid0>
+    <nme>Simple AI SMS</nme>
+    <Event sr="con0" ve="2">
+      <code>5</code>
+      <pri>0</pri>
+      <Str sr="arg0" ve="3"></Str>
+      <Str sr="arg1" ve="3"></Str>
+      <Int sr="arg2" val="0"/>
+    </Event>
+  </Profile>
+  
+  <Task sr="task3">
+    <cdate>1642234567890</cdate>
+    <edate>1642234567890</edate>
+    <id>3</id>
+    <nme>Simple AI SMS</nme>
+    
+    <!-- HTTP Request -->
+    <Action sr="act0" ve="7">
+      <code>339</code>
+      <Str sr="arg0" ve="3">thedistillerynetwork.onrender.com</Str>
+      <Str sr="arg1" ve="3">/reply</Str>
+      <Str sr="arg2" ve="3">application/json</Str>
+      <Str sr="arg3" ve="3">{"phone":"%SMSRF","text":"%SMSRB"}</Str>
+      <Str sr="arg4" ve="3"></Str>
+      <Str sr="arg5" ve="3"></Str>
+      <Int sr="arg6" val="60"/>
+    </Action>
+    
+    <!-- Wait 3 seconds -->
+    <Action sr="act1" ve="7">
+      <code>30</code>
+      <Int sr="arg0" val="3"/>
+      <Int sr="arg1" val="0"/>
+      <Int sr="arg2" val="0"/>
+      <Int sr="arg3" val="0"/>
+      <Int sr="arg4" val="0"/>
+    </Action>
+    
+    <!-- Send SMS with server response -->
+    <Action sr="act2" ve="7">
+      <code>12</code>
+      <Str sr="arg0" ve="3">%SMSRF</Str>
+      <Str sr="arg1" ve="3">%HTTPD</Str>
+      <Int sr="arg2" val="0"/>
+      <Int sr="arg3" val="0"/>
+    </Action>
+    
   </Task>
 </TaskerData>
 ```
