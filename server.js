@@ -201,16 +201,21 @@ async function findCustomerByPhone(phone) {
     
     console.log(`🔍 Looking for phone: ${phone} -> normalized: ${normalizedInputPhone}`);
     
-    const foundCustomer = rows.find((row, index) => {
+    let foundCustomer = null;
+    let foundRowIndex = -1;
+    
+    rows.forEach((row, index) => {
       const phoneField = row._rawData[6]; // Assuming phone is in column 6
-      if (!phoneField) return false;
+      if (!phoneField || foundCustomer) return;
       
       const normalizedRowPhone = normalizePhoneNumber(phoneField);
       
       // Exact match
       if (normalizedRowPhone === normalizedInputPhone) {
         console.log(`✅ EXACT MATCH found at Row ${index}`);
-        return true;
+        foundCustomer = row;
+        foundRowIndex = index + 1; // Google Sheets is 1-indexed
+        return;
       }
       
       // Partial match (last 10 digits)
@@ -220,12 +225,16 @@ async function findCustomerByPhone(phone) {
         
         if (rowLast10 === inputLast10) {
           console.log(`✅ PARTIAL MATCH found at Row ${index} (last 10 digits)`);
-          return true;
+          foundCustomer = row;
+          foundRowIndex = index + 1; // Google Sheets is 1-indexed
+          return;
         }
       }
-      
-      return false;
     });
+    
+    if (foundCustomer) {
+      foundCustomer.googleRowIndex = foundRowIndex;
+    }
     
     return foundCustomer;
   } catch (error) {
@@ -329,7 +338,7 @@ app.post('/reply', async (req, res) => {
         try {
           // Load the sheet cells to get formatting information
           await customerSheet.loadCells();
-          const rowIndex = customer.rowIndex;
+          const rowIndex = customer.googleRowIndex;
           
           // Check the background color of the status cell (column 4, assuming 0-indexed)
           const statusCell = customerSheet.getCell(rowIndex, 4);
