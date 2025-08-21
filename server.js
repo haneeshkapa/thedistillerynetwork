@@ -1146,9 +1146,23 @@ async function processIncomingSMS(phone, message, source = 'twilio') {
   // Generate AI response using Anthropic Claude
   try {
     console.log(`🔍 Step 4: AI response generation starting`);
+    
+    // Sanitize customer data to prevent prompt injection or formatting issues
+    const sanitizeText = (text) => {
+      if (!text || typeof text !== 'string') return 'Unknown';
+      return text
+        .replace(/[\r\n\t]/g, ' ')  // Replace newlines and tabs with spaces
+        .replace(/[^\x20-\x7E]/g, '') // Remove non-printable ASCII characters  
+        .substring(0, 100) // Limit length to prevent extremely long fields
+        .trim();
+    };
+    
+    const customerName = customerInfo?._rawData?.[2] ? sanitizeText(customerInfo._rawData[2]) : 'Unknown';
+    const orderId = customerInfo?._rawData?.[0] ? sanitizeText(customerInfo._rawData[0]) : 'No Order';
+    
     const prompt = `You are Jonathan, owner of a moonshine distillation equipment business. You are knowledgeable, friendly, and casual in your communication style.
 
-CUSTOMER INFO: ${customerInfo ? `${customerInfo._rawData?.[2] || 'Unknown'} (${customerInfo._rawData?.[0] || 'No Order'})` : 'Unknown customer'}
+CUSTOMER INFO: ${customerInfo ? `${customerName} (${orderId})` : 'Unknown customer'}
 CONVERSATION HISTORY: ${historyContext}
 KNOWLEDGE BASE: ${combinedKnowledge}
 
@@ -1181,8 +1195,8 @@ Respond in a conversational, helpful manner. Keep responses concise and SMS-frie
     try {
       console.log(`🔍 Step 5: Message storage starting`);
       await enterpriseChatStorage.storeMessage(phone, message, reply, {
-        customerName: customerInfo?._rawData?.[2] || 'Unknown',
-        orderId: customerInfo?._rawData?.[0] || 'No Order',
+        customerName: customerName, // Use sanitized version
+        orderId: orderId, // Use sanitized version  
         provider: 'claude',
         source: source
       });
