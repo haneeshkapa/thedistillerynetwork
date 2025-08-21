@@ -1026,11 +1026,14 @@ app.post('/tasker/sms', async (req, res) => {
 
 // Helper function to process SMS (reused from /reply endpoint)
 async function processIncomingSMS(phone, message, source = 'twilio') {
+  console.log(`🚀 Starting processIncomingSMS for phone: ${phone}, message: "${message.substring(0, 50)}..."`);
+  
   let customerInfo = null;
   let conversationHistory = [];
   let combinedKnowledge = '';
   
   try {
+    console.log(`🔍 Step 1: Customer lookup starting for ${phone}`);
     // Customer lookup with timeout
     customerInfo = await Promise.race([
       findCustomerByPhone(phone),
@@ -1039,12 +1042,19 @@ async function processIncomingSMS(phone, message, source = 'twilio') {
       )
     ]);
     
-    console.log(`📞 Customer found: ${customerInfo?.name || 'Unknown'} (${phone})`);
+    console.log(`📞 Step 1 Complete: Customer lookup result for ${phone}:`, {
+      found: !!customerInfo,
+      hasRawData: !!customerInfo?._rawData,
+      rawDataLength: customerInfo?._rawData?.length || 0,
+      customerName: customerInfo?._rawData?.[2] || 'N/A',
+      orderId: customerInfo?._rawData?.[0] || 'N/A'
+    });
   } catch (error) {
-    console.log(`⚠️ Customer lookup failed for ${phone}: ${error.message}`);
+    console.log(`⚠️ Step 1 Failed: Customer lookup failed for ${phone}: ${error.message}`);
   }
   
   try {
+    console.log(`🔍 Step 2: Conversation history lookup starting for ${phone}`);
     // Get conversation history with timeout
     conversationHistory = await Promise.race([
       enterpriseChatStorage.getConversationHistory(phone, 5),
@@ -1052,13 +1062,14 @@ async function processIncomingSMS(phone, message, source = 'twilio') {
         setTimeout(() => reject(new Error('Enterprise storage timeout')), 12000)
       )
     ]);
-    console.log(`📚 Retrieved ${conversationHistory.length} messages from enterprise storage`);
+    console.log(`📚 Step 2 Complete: Retrieved ${conversationHistory.length} messages from enterprise storage`);
   } catch (error) {
-    console.log(`⚠️ Enterprise storage retrieval failed, using local: ${error.message}`);
+    console.log(`⚠️ Step 2 Failed: Enterprise storage retrieval failed, using local: ${error.message}`);
     conversationHistory = getConversationHistory(phone, 5);
   }
   
   try {
+    console.log(`🔍 Step 3: Knowledge retrieval starting for message: "${message.substring(0, 30)}..."`);
     // Get knowledge base context with timeout
     combinedKnowledge = await Promise.race([
       knowledgeRetriever.getRelevantKnowledge(message, 3),
@@ -1066,8 +1077,9 @@ async function processIncomingSMS(phone, message, source = 'twilio') {
         setTimeout(() => reject(new Error('Knowledge retrieval timeout')), 5000)
       )
     ]);
+    console.log(`📚 Step 3 Complete: Knowledge retrieved, length: ${combinedKnowledge.length} chars`);
   } catch (error) {
-    console.log(`⚠️ Knowledge retrieval failed: ${error.message}`);
+    console.log(`⚠️ Step 3 Failed: Knowledge retrieval failed: ${error.message}`);
     combinedKnowledge = 'Basic product information available on request.';
   }
   
@@ -1089,6 +1101,7 @@ async function processIncomingSMS(phone, message, source = 'twilio') {
   
   // Generate AI response using Anthropic Claude
   try {
+    console.log(`🔍 Step 4: AI response generation starting`);
     const prompt = `You are Jonathan, owner of a moonshine distillation equipment business. You are knowledgeable, friendly, and casual in your communication style.
 
 CUSTOMER INFO: ${customerInfo ? `${customerInfo._rawData?.[2] || 'Unknown'} (${customerInfo._rawData?.[0] || 'No Order'})` : 'Unknown customer'}
@@ -1099,6 +1112,8 @@ Customer message: "${message}"
 
 Respond in a conversational, helpful manner. Keep responses concise and SMS-friendly. If you need clarification, ask specific questions.`;
 
+    console.log(`📝 Prompt length: ${prompt.length} chars. Customer info: ${customerInfo ? 'Found' : 'Not found'}`);
+    
     const claudeResponse = await anthropic.messages.create({
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 1000,
@@ -1106,17 +1121,20 @@ Respond in a conversational, helpful manner. Keep responses concise and SMS-frie
     });
 
     const reply = claudeResponse.content[0].text;
+    console.log(`🎯 Step 4 Complete: AI response generated, length: ${reply.length} chars`);
 
     // Store the conversation
     try {
+      console.log(`🔍 Step 5: Message storage starting`);
       await enterpriseChatStorage.storeMessage(phone, message, reply, {
         customerName: customerInfo?._rawData?.[2] || 'Unknown',
         orderId: customerInfo?._rawData?.[0] || 'No Order',
         provider: 'claude',
         source: source
       });
+      console.log(`💾 Step 5 Complete: Message stored successfully`);
     } catch (storageError) {
-      console.log(`⚠️ Storage failed: ${storageError.message}`);
+      console.log(`⚠️ Step 5 Failed: Storage failed: ${storageError.message}`);
     }
 
     return {
