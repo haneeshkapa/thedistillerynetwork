@@ -1076,17 +1076,12 @@ async function processIncomingSMS(phone, message, source = 'twilio') {
       });
     }
     
-    // Special handling for customer 9786778131 to prevent processing issues
-    if (phone === '9786778131' || phone === '+19786778131') {
-      console.log(`🛠️ Applying special handling for customer 9786778131`);
-      customerInfo = {
-        _rawData: ['ORDER-SPECIAL', 'Active', 'Valued Customer', '', '', '', '9786778131', '', '', '']
-      };
-    }
-    
     // Validate customer data structure to catch corrupted records
     if (customerInfo && (!customerInfo._rawData || !Array.isArray(customerInfo._rawData))) {
       console.log(`⚠️ Customer data validation failed - corrupted record for ${phone}`);
+      if (phone === '9786778131' || phone === '+19786778131') {
+        console.log(`🐛 CORRUPTED DATA DETAILS FOR 9786778131:`, JSON.stringify(customerInfo, null, 2));
+      }
       customerInfo = null; // Clear corrupted data
     }
     
