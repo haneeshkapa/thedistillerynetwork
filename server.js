@@ -823,6 +823,11 @@ app.get('/api/logs', async (req, res) => {
   }
 });
 
+// Root route - redirect to admin
+app.get('/', (req, res) => {
+  res.redirect('/admin');
+});
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', message: 'Jonathan\'s Distillation SMS Bot is running' });
