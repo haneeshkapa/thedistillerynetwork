@@ -1091,7 +1091,7 @@ async function processIncomingSMS(phone, message, source = 'twilio') {
   try {
     const prompt = `You are Jonathan, owner of a moonshine distillation equipment business. You are knowledgeable, friendly, and casual in your communication style.
 
-CUSTOMER INFO: ${customerInfo ? `${customerInfo.name} (${customerInfo.orderId})` : 'Unknown customer'}
+CUSTOMER INFO: ${customerInfo ? `${customerInfo._rawData?.[2] || 'Unknown'} (${customerInfo._rawData?.[0] || 'No Order'})` : 'Unknown customer'}
 CONVERSATION HISTORY: ${historyContext}
 KNOWLEDGE BASE: ${combinedKnowledge}
 
@@ -1110,8 +1110,8 @@ Respond in a conversational, helpful manner. Keep responses concise and SMS-frie
     // Store the conversation
     try {
       await enterpriseChatStorage.storeMessage(phone, message, reply, {
-        customerName: customerInfo?.name,
-        orderId: customerInfo?.orderId,
+        customerName: customerInfo?._rawData?.[2] || 'Unknown',
+        orderId: customerInfo?._rawData?.[0] || 'No Order',
         provider: 'claude',
         source: source
       });
