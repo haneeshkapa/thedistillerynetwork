@@ -1048,6 +1048,18 @@ app.post('/tasker/sms', async (req, res) => {
 async function processIncomingSMS(phone, message, source = 'twilio') {
   console.log(`🚀 Starting processIncomingSMS for phone: ${phone}, message: "${message.substring(0, 50)}..."`);
   
+  // Complete bypass for problematic customer to test system isolation
+  if (phone === '9786778131' || phone === '+19786778131') {
+    console.log(`🔧 COMPLETE BYPASS FOR 9786778131 - RETURNING HARDCODED RESPONSE`);
+    return {
+      message: "Hey! I'm Jonathan from American Copper Works. Thanks for reaching out! I'd be happy to help you with our copper stills. Call us at (603) 997-6786 for personalized assistance.",
+      customerInfo: null,
+      provider: 'hardcoded_bypass',
+      success: true,
+      context: 'Bypass mode for debugging'
+    };
+  }
+  
   let customerInfo = null;
   let conversationHistory = [];
   let combinedKnowledge = '';
