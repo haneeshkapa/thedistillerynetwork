@@ -1054,13 +1054,20 @@ async function processIncomingSMS(phone, message, source = 'twilio') {
   
   try {
     console.log(`🔍 Step 1: Customer lookup starting for ${phone}`);
-    // Customer lookup with reduced timeout for faster fallback
-    customerInfo = await Promise.race([
-      findCustomerByPhone(phone),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Customer lookup timeout')), 5000)
-      )
-    ]);
+    
+    // Temporary bypass for problematic customer to test if issue is in lookup
+    if (phone === '9786778131' || phone === '+19786778131') {
+      console.log(`🔧 TEMPORARILY BYPASSING CUSTOMER LOOKUP FOR 9786778131`);
+      customerInfo = null; // Skip lookup to test if that's the issue
+    } else {
+      // Customer lookup with reduced timeout for faster fallback
+      customerInfo = await Promise.race([
+        findCustomerByPhone(phone),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Customer lookup timeout')), 5000)
+        )
+      ]);
+    }
     
     // Special debugging for the problematic customer
     if (phone === '9786778131' || phone === '+19786778131') {
