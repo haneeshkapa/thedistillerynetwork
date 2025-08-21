@@ -3,7 +3,7 @@
 const { GoogleSpreadsheet } = require('google-spreadsheet');
 require('dotenv').config();
 
-const CUSTOMER_PHONE = '9786778131';
+const CUSTOMER_PHONE = '5097073183';
 
 // Normalize phone number function (copied from server.js)
 function normalizePhoneNumber(phone) {
@@ -42,11 +42,31 @@ async function debugCustomerIssue() {
     await doc.loadInfo();
     
     console.log('📊 Connected to Google Sheets:', doc.title);
+    console.log('📋 Available sheets:', doc.sheetsByTitle);
     
     const sheet = doc.sheetsByIndex[0];
-    const rows = await sheet.getRows();
+    console.log('📄 Current sheet title:', sheet.title);
+    console.log('📊 Sheet properties:', {
+      rowCount: sheet.rowCount,
+      columnCount: sheet.columnCount,
+      gridProperties: sheet.gridProperties
+    });
     
-    console.log(`📋 Total rows: ${rows.length}`);
+    // Check if there are other sheets that might contain color legend
+    console.log('\n📋 All sheets in document:');
+    doc.sheetsByIndex.forEach((sh, idx) => {
+      console.log(`  Sheet ${idx}: "${sh.title}"`);
+    });
+    
+    // Get headers first
+    await sheet.loadHeaderRow(1);
+    console.log('\n📋 Sheet headers:');
+    sheet.headerValues.forEach((header, index) => {
+      console.log(`  Column ${index}: "${header}"`);
+    });
+    
+    const rows = await sheet.getRows();
+    console.log(`\n📋 Total rows: ${rows.length}`);
     
     // Normalize the target phone
     const normalizedTargetPhone = normalizePhoneNumber(CUSTOMER_PHONE);
