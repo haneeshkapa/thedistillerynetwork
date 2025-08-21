@@ -1052,9 +1052,6 @@ async function processIncomingSMS(phone, message, source = 'twilio') {
   let conversationHistory = [];
   let combinedKnowledge = '';
   
-  // Wrap entire function in try-catch to ensure no uncaught exceptions
-  try {
-  
   try {
     console.log(`🔍 Step 1: Customer lookup starting for ${phone}`);
     // Customer lookup with reduced timeout for faster fallback
@@ -1065,10 +1062,26 @@ async function processIncomingSMS(phone, message, source = 'twilio') {
       )
     ]);
     
+    // Special debugging for the problematic customer
+    if (phone === '9786778131' || phone === '+19786778131') {
+      console.log(`🐛 DEBUGGING CUSTOMER 9786778131:`, {
+        customerFound: !!customerInfo,
+        hasRawData: !!customerInfo?._rawData,
+        rawDataType: typeof customerInfo?._rawData,
+        rawDataLength: customerInfo?._rawData?.length,
+        rawDataSample: customerInfo?._rawData?.slice(0, 5), // First 5 columns
+        customerStructure: Object.keys(customerInfo || {})
+      });
+    }
+    
     // Validate customer data structure to catch corrupted records
     if (customerInfo && (!customerInfo._rawData || !Array.isArray(customerInfo._rawData))) {
       console.log(`⚠️ Customer data validation failed - corrupted record for ${phone}`);
-      customerInfo = null; // Treat as unknown customer
+      if (phone === '9786778131' || phone === '+19786778131') {
+        console.log(`🐛 CORRUPTED DATA DETAILS:`, customerInfo);
+      }
+      // Don't null out the customer - let it continue and see what breaks
+      // customerInfo = null; 
     }
     
     console.log(`📞 Step 1 Complete: Customer lookup result for ${phone}:`, {
@@ -1145,6 +1158,11 @@ Respond in a conversational, helpful manner. Keep responses concise and SMS-frie
 
     console.log(`📝 Prompt length: ${prompt.length} chars. Customer info: ${customerInfo ? 'Found' : 'Not found'}`);
     
+    // Special debugging for the problematic customer
+    if (phone === '9786778131' || phone === '+19786778131') {
+      console.log(`🐛 DEBUGGING PROMPT FOR 9786778131:`, prompt.substring(0, 500) + '...');
+    }
+    
     const claudeResponse = await anthropic.messages.create({
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 1000,
@@ -1153,6 +1171,11 @@ Respond in a conversational, helpful manner. Keep responses concise and SMS-frie
 
     const reply = claudeResponse.content[0].text;
     console.log(`🎯 Step 4 Complete: AI response generated, length: ${reply.length} chars`);
+    
+    // Special debugging for the problematic customer
+    if (phone === '9786778131' || phone === '+19786778131') {
+      console.log(`🐛 AI RESPONSE FOR 9786778131:`, reply.substring(0, 200) + '...');
+    }
 
     // Store the conversation
     try {
@@ -1190,21 +1213,6 @@ Respond in a conversational, helpful manner. Keep responses concise and SMS-frie
     };
   }
   
-  } catch (uncaughtError) {
-    // Catch any uncaught errors in processIncomingSMS
-    console.error(`💥 UNCAUGHT ERROR in processIncomingSMS for phone ${phone}:`, uncaughtError);
-    console.error(`💥 Stack trace:`, uncaughtError.stack);
-    
-    return {
-      message: "I apologize, but I'm experiencing technical difficulties right now. Please call us at (603) 997-6786 for immediate assistance!",
-      customerInfo: null,
-      provider: 'emergency_fallback',
-      success: false,
-      error: `Uncaught error: ${uncaughtError.message}`,
-      errorDetails: uncaughtError.stack,
-      context: 'Uncaught exception handler'
-    };
-  }
 }
 
 // Enhanced system stats endpoint
