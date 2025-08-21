@@ -253,7 +253,7 @@ app.post('/reply', async (req, res) => {
     return res.status(400).json({ error: 'Missing phone or message text' });
   }
   
-  const phone = String(incomingPhone);
+  const phone = normalizePhoneNumber(incomingPhone);
   const userMessage = incomingText.trim();
   const timestamp = new Date();
 
@@ -538,7 +538,7 @@ app.post('/human', async (req, res) => {
     return res.status(400).json({ error: 'Missing phone or message text' });
   }
   
-  const phone = String(incomingPhone);
+  const phone = normalizePhoneNumber(incomingPhone);
   const userMessage = incomingText.trim();
   const timestamp = new Date();
 
