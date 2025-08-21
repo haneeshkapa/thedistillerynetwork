@@ -318,7 +318,7 @@ app.post('/reply', async (req, res) => {
     }
 
     // Check for order status queries
-    const orderPattern = /order|status|tracking|shipped|delivery|when will|eta/i;
+    const orderPattern = /order|ordered|purchase|purchased|bought|status|tracking|shipped|delivery|when will|eta/i;
     let orderInfo = "";
     if (orderPattern.test(userMessage)) {
       const customer = await findCustomerByPhone(phone);
