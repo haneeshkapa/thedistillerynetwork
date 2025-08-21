@@ -268,12 +268,9 @@ app.post('/reply', async (req, res) => {
       // New conversation: check if customer exists in Google Sheets
       const customer = await findCustomerByPhone(phone);
       if (!customer || !customer._rawData || !customer._rawData[2]) {
-        // Customer not found in Google Sheets - ignore message
-        await logEvent('info', `Ignoring SMS from non-customer: ${phone}`);
-        return res.status(200).json({ 
-          ignored: true, 
-          message: "Customer not found in records" 
-        });
+        // Customer not found in Google Sheets - return special response for Tasker
+        await logEvent('info', `Non-customer SMS from ${phone} - no auto-reply`);
+        return res.status(200).send("__IGNORE__");
       }
       
       // Customer found - proceed with conversation
@@ -290,12 +287,9 @@ app.post('/reply', async (req, res) => {
       if (!conversation.name) {
         const customer = await findCustomerByPhone(phone);
         if (!customer || !customer._rawData || !customer._rawData[2]) {
-          // Customer no longer in Google Sheets - ignore message
-          await logEvent('info', `Ignoring SMS from removed customer: ${phone}`);
-          return res.status(200).json({ 
-            ignored: true, 
-            message: "Customer not found in current records" 
-          });
+          // Customer no longer in Google Sheets - return special response for Tasker
+          await logEvent('info', `Non-customer SMS from removed customer ${phone} - no auto-reply`);
+          return res.status(200).send("__IGNORE__");
         }
       }
       
