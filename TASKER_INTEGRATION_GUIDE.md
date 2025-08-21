@@ -13,7 +13,7 @@ Your SMS bot will:
 
 ## API Endpoint
 
-**URL:** `https://thedistillerynetwork.onrender.com/tasker/sms`
+**URL:** `https://thedistillerynetwork.onrender.com/reply`
 **Method:** POST
 **Content-Type:** application/json
 
@@ -21,9 +21,8 @@ Your SMS bot will:
 
 ```json
 {
-  "phone": "+15551234567",
-  "message": "Hey, do you have any 5-gallon copper stills?",
-  "sender_name": "John Smith (Optional)"
+  "phone": "5551234567",
+  "text": "Hey, do you have any 5-gallon copper stills?"
 }
 ```
 
@@ -31,17 +30,14 @@ Your SMS bot will:
 
 ```json
 {
-  "success": true,
-  "customer": {
-    "name": "John Smith",
-    "phone": "+15551234567", 
-    "orderId": "1001",
-    "product": "3 Gallon Copper Still",
-    "created": "2024-01-15"
-  },
-  "response": "Hi John! Yes, we have several 5-gallon copper stills available. Since you previously ordered our 3-gallon model, you might be interested in our premium 5-gallon copper moonshine still for $899. It features improved heat distribution and includes all accessories. Would you like more details about pricing and availability?",
-  "conversation_context": "Returning customer interested in upgrading still size",
-  "processing_time": 1250
+  "reply": "Hi John! Yes, we have several 5-gallon copper stills available. Since you previously ordered our 3-gallon model, you might be interested in our premium 5-gallon copper moonshine still for $899. It features improved heat distribution and includes all accessories. Would you like more details about pricing and availability?"
+}
+```
+
+**Error Response:**
+```json
+{
+  "error": "Internal Server Error"
 }
 ```
 
@@ -65,13 +61,12 @@ Your SMS bot will:
 
 ```
 Server:Port: thedistillerynetwork.onrender.com
-Path: /tasker/sms
+Path: /reply
 Method: POST
 Content Type: application/json
 Body: {
   "phone": "%SMSRF",
-  "message": "%SMSRB",
-  "sender_name": "%SMSRN"
+  "text": "%SMSRB"
 }
 Timeout: 30
 ```
@@ -111,12 +106,10 @@ To extract specific parts of the response:
 ```javascript
 // Parse the JSON response
 var response = JSON.parse(global('AI_Response'));
-var aiMessage = response.response;
-var customerName = response.customer.name;
+var aiMessage = response.reply;
 
-// Set variables
+// Set variables  
 setGlobal('AI_MESSAGE', aiMessage);
-setGlobal('CUSTOMER_NAME', customerName);
 ```
 
 ### Error Handling
@@ -246,9 +239,9 @@ Mark urgent messages:
     <Action sr="act0" ve="7">
       <code>339</code>
       <Str sr="arg0" ve="3">thedistillerynetwork.onrender.com</Str>
-      <Str sr="arg1" ve="3">/tasker/sms</Str>
+      <Str sr="arg1" ve="3">/reply</Str>
       <Str sr="arg2" ve="3">application/json</Str>
-      <Str sr="arg3" ve="3">{"phone":"%SMSRF","message":"%SMSRB","sender_name":"%SMSRN"}</Str>
+      <Str sr="arg3" ve="3">{"phone":"%SMSRF","text":"%SMSRB"}</Str>
       <Str sr="arg4" ve="3"></Str>
       <Str sr="arg5" ve="3"></Str>
       <Int sr="arg6" val="30"/>
@@ -271,7 +264,7 @@ Mark urgent messages:
 
 ## Support
 
-- **Management Dashboard**: `https://thedistillerynetwork.onrender.com/management.html`
+- **Management Dashboard**: `https://thedistillerynetwork.onrender.com/admin`
 - **API Status**: Check `/health` endpoint
 - **Logs**: View system logs in management dashboard
 
