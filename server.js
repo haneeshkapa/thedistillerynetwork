@@ -326,7 +326,7 @@ app.post('/reply', async (req, res) => {
         [phone, 'assistant', stockReply, new Date()]
       );
       await logEvent('info', `Inventory query detected from ${phone}. Sent stock fallback response.`);
-      return res.json({ reply: stockReply });
+      return res.status(200).send(stockReply);
     }
 
     // Check for order status queries
@@ -485,7 +485,7 @@ app.post('/reply', async (req, res) => {
         'INSERT INTO messages(phone, sender, message, timestamp) VALUES($1, $2, $3, $4)',
         [phone, 'assistant', errorReply, new Date()]
       );
-      return res.json({ reply: errorReply });
+      return res.status(200).send(errorReply);
     }
 
     if (!aiResponse) {
@@ -513,12 +513,12 @@ app.post('/reply', async (req, res) => {
     );
 
     await logEvent('info', `Sending AI response to ${phone}: "${aiResponse}"`);
-    res.json({ reply: aiResponse });
+    res.status(200).send(aiResponse);
 
   } catch (err) {
     console.error("Error in /reply handler:", err);
     await logEvent('error', `Internal error processing SMS from ${phone}: ${err.message}`);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).send('Sorry, something went wrong. Please try again later.');
   }
 });
 
