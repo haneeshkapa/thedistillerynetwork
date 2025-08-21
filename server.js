@@ -308,6 +308,33 @@ app.post('/reply', async (req, res) => {
       return res.json({ reply: stockReply });
     }
 
+    // Check for order status queries
+    const orderPattern = /order|status|tracking|shipped|delivery|when will|eta/i;
+    let orderInfo = "";
+    if (orderPattern.test(userMessage)) {
+      const customer = await findCustomerByPhone(phone);
+      if (customer && customer._rawData) {
+        // Extract order information from Google Sheets row
+        const rowData = customer._rawData;
+        const orderDate = rowData[0] || '';
+        const customerName = rowData[2] || '';
+        const productOrdered = rowData[3] || '';
+        const orderStatus = rowData[4] || '';
+        const trackingInfo = rowData[5] || '';
+        
+        orderInfo = `\n\nCUSTOMER ORDER INFORMATION:\n`;
+        orderInfo += `Customer: ${customerName}\n`;
+        if (orderDate) orderInfo += `Order Date: ${orderDate}\n`;
+        if (productOrdered) orderInfo += `Product: ${productOrdered}\n`;
+        if (orderStatus) orderInfo += `Status: ${orderStatus}\n`;
+        if (trackingInfo) orderInfo += `Tracking: ${trackingInfo}\n`;
+        
+        await logEvent('info', `Order status lookup successful for ${phone}: ${orderStatus}`);
+      } else {
+        await logEvent('info', `Order status lookup failed for ${phone}: customer not found`);
+      }
+    }
+
     // Retrieve relevant knowledge
     const knowledgeChunks = await knowledgeRetriever.retrieveRelevantChunks(userMessage, 3);
     await logEvent('info', `Knowledge retrieved: found ${knowledgeChunks.length} relevant pieces.`);
@@ -335,6 +362,9 @@ app.post('/reply', async (req, res) => {
       knowledgeChunks.forEach((chunk, idx) => {
         systemContent += `- ${chunk}\n`;
       });
+    }
+    if (orderInfo) {
+      systemContent += orderInfo;
     }
 
     // Add conversation history (excluding current message)
