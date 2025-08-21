@@ -1129,12 +1129,14 @@ Respond in a conversational, helpful manner. Keep responses concise and SMS-frie
 
   } catch (error) {
     console.error(`❌ AI processing failed: ${error.message}`);
+    console.error(`❌ Error details:`, error);
     return {
       message: "I apologize, but I'm experiencing technical difficulties right now. Please call us at (603) 997-6786 for immediate assistance with your distillation equipment questions!",
       customerInfo: customerInfo,
       provider: 'fallback',
       success: false,
       error: error.message,
+      errorDetails: process.env.NODE_ENV === 'development' ? error.stack : error.message,
       context: 'Error fallback'
     };
   }
