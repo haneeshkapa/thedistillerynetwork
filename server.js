@@ -992,8 +992,22 @@ app.post('/tasker/sms', async (req, res) => {
       sender_name: sender_name || 'Unknown'
     });
     
-    // Use the existing SMS processing logic
+    // Use the existing SMS processing logic with extra error handling
     const response = await processIncomingSMS(phone, message, 'tasker');
+    
+    // Check if processIncomingSMS returned an error
+    if (!response.success) {
+      const processingTime = Date.now() - startTime;
+      console.error(`❌ processIncomingSMS failed for ${phone}: ${response.error || 'Unknown error'}`);
+      
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to process SMS', 
+        message: response.message || 'Sorry, I\'m having trouble right now. Please try again in a moment.',
+        processing_time: processingTime,
+        details: response.errorDetails || 'Internal processing error'
+      });
+    }
     
     const processingTime = Date.now() - startTime;
     
