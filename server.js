@@ -322,14 +322,61 @@ app.post('/reply', async (req, res) => {
         const orderStatus = rowData[4] || '';
         const trackingInfo = rowData[5] || '';
         
+        // Get cell background color to determine actual status
+        let statusDescription = "Order received";
+        let statusColor = "white"; // default
+        
+        try {
+          // Load the sheet cells to get formatting information
+          await customerSheet.loadCells();
+          const rowIndex = customer.rowIndex;
+          
+          // Check the background color of the status cell (column 4, assuming 0-indexed)
+          const statusCell = customerSheet.getCell(rowIndex, 4);
+          if (statusCell && statusCell.backgroundColor) {
+            const bgColor = statusCell.backgroundColor;
+            
+            // Map colors to status descriptions based on your color coding system
+            if (bgColor.red > 0.9 && bgColor.green < 0.3 && bgColor.blue < 0.3) {
+              // Red - Want to cancel
+              statusDescription = "Customer wants to cancel";
+              statusColor = "red";
+            } else if (bgColor.red < 0.3 && bgColor.green > 0.7 && bgColor.blue < 0.3) {
+              // Green - Shipped
+              statusDescription = "Shipped";
+              statusColor = "green";
+            } else if (bgColor.red > 0.8 && bgColor.green > 0.8 && bgColor.blue < 0.3) {
+              // Yellow/Orange - In process
+              statusDescription = "In process";
+              statusColor = "yellow";
+            } else if (bgColor.red < 0.3 && bgColor.green > 0.5 && bgColor.blue > 0.7) {
+              // Light blue - Call for update
+              statusDescription = "Need to call for update";
+              statusColor = "light blue";
+            } else if (bgColor.red < 0.3 && bgColor.green < 0.3 && bgColor.blue > 0.7) {
+              // Dark blue - Important and calling
+              statusDescription = "Priority - customer calling frequently";
+              statusColor = "dark blue";
+            } else {
+              // White or other - Order comes in
+              statusDescription = "Order received";
+              statusColor = "white";
+            }
+          }
+        } catch (colorError) {
+          console.error('Error reading cell colors:', colorError);
+          await logEvent('error', `Failed to read cell colors for ${phone}: ${colorError.message}`);
+        }
+        
         orderInfo = `\n\nCUSTOMER ORDER INFORMATION:\n`;
         orderInfo += `Customer: ${customerName}\n`;
         if (orderDate) orderInfo += `Order Date: ${orderDate}\n`;
         if (productOrdered) orderInfo += `Product: ${productOrdered}\n`;
-        if (orderStatus) orderInfo += `Status: ${orderStatus}\n`;
+        orderInfo += `Status: ${statusDescription}\n`;
         if (trackingInfo) orderInfo += `Tracking: ${trackingInfo}\n`;
+        orderInfo += `\nCOLOR CODE STATUS: ${statusColor} = ${statusDescription}\n`;
         
-        await logEvent('info', `Order status lookup successful for ${phone}: ${orderStatus}`);
+        await logEvent('info', `Order status lookup successful for ${phone}: ${statusDescription} (${statusColor})`);
       } else {
         await logEvent('info', `Order status lookup failed for ${phone}: customer not found`);
       }
