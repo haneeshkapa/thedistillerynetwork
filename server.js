@@ -265,15 +265,20 @@ app.post('/reply', async (req, res) => {
     let conversation = convResult.rows[0];
     
     if (!conversation) {
-      // New conversation: create and attempt to lookup customer name from Google Sheets
-      let name = null;
+      // New conversation: check if customer exists in Google Sheets
       const customer = await findCustomerByPhone(phone);
-      if (customer && customer._rawData && customer._rawData[2]) {
-        name = customer._rawData[2]; // Assuming name is in column 2
-        await logEvent('info', `Customer identified: ${name} (phone ${phone})`);
-      } else {
-        await logEvent('info', `No customer record found for phone ${phone}`);
+      if (!customer || !customer._rawData || !customer._rawData[2]) {
+        // Customer not found in Google Sheets - ignore message
+        await logEvent('info', `Ignoring SMS from non-customer: ${phone}`);
+        return res.status(200).json({ 
+          ignored: true, 
+          message: "Customer not found in records" 
+        });
       }
+      
+      // Customer found - proceed with conversation
+      const name = customer._rawData[2];
+      await logEvent('info', `Customer identified: ${name} (phone ${phone})`);
       
       await pool.query(
         'INSERT INTO conversations(phone, name, paused, requested_human, last_active) VALUES($1, $2, $3, $4, $5)',
@@ -281,6 +286,19 @@ app.post('/reply', async (req, res) => {
       );
       conversation = { phone, name, paused: false, requested_human: false };
     } else {
+      // Existing conversation: verify customer still exists in Google Sheets
+      if (!conversation.name) {
+        const customer = await findCustomerByPhone(phone);
+        if (!customer || !customer._rawData || !customer._rawData[2]) {
+          // Customer no longer in Google Sheets - ignore message
+          await logEvent('info', `Ignoring SMS from removed customer: ${phone}`);
+          return res.status(200).json({ 
+            ignored: true, 
+            message: "Customer not found in current records" 
+          });
+        }
+      }
+      
       // Update last_active
       await pool.query('UPDATE conversations SET last_active=$1 WHERE phone=$2', [timestamp, phone]);
     }
@@ -532,15 +550,20 @@ app.post('/human', async (req, res) => {
     let conversation = convResult.rows[0];
     
     if (!conversation) {
-      // New conversation: create and attempt to lookup customer name from Google Sheets
-      let name = null;
+      // New conversation: check if customer exists in Google Sheets
       const customer = await findCustomerByPhone(phone);
-      if (customer && customer._rawData && customer._rawData[2]) {
-        name = customer._rawData[2]; // Assuming name is in column 2
-        await logEvent('info', `Customer identified: ${name} (phone ${phone})`);
-      } else {
-        await logEvent('info', `No customer record found for phone ${phone}`);
+      if (!customer || !customer._rawData || !customer._rawData[2]) {
+        // Customer not found in Google Sheets - ignore message
+        await logEvent('info', `Ignoring human message from non-customer: ${phone}`);
+        return res.status(200).json({ 
+          ignored: true, 
+          message: "Customer not found in records" 
+        });
       }
+      
+      // Customer found - proceed with logging
+      const name = customer._rawData[2];
+      await logEvent('info', `Customer identified for human conversation: ${name} (phone ${phone})`);
       
       await pool.query(
         'INSERT INTO conversations(phone, name, paused, requested_human, last_active) VALUES($1, $2, $3, $4, $5)',

@@ -41,6 +41,14 @@ Your SMS bot will:
 }
 ```
 
+**Ignored Response (Non-Customer):**
+```json
+{
+  "ignored": true,
+  "message": "Customer not found in records"
+}
+```
+
 ## Tasker Setup Instructions
 
 ### Step 1: Create SMS Received Profile
