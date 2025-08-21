@@ -270,7 +270,7 @@ app.post('/reply', async (req, res) => {
       if (!customer || !customer._rawData || !customer._rawData[2]) {
         // Customer not found in Google Sheets - return special response for Tasker
         await logEvent('info', `Non-customer SMS from ${phone} - no auto-reply`);
-        return res.status(200).send("__IGNORE__");
+        return res.status(200).type('text/plain').send("__IGNORE__");
       }
       
       // Customer found - proceed with conversation
@@ -289,7 +289,7 @@ app.post('/reply', async (req, res) => {
         if (!customer || !customer._rawData || !customer._rawData[2]) {
           // Customer no longer in Google Sheets - return special response for Tasker
           await logEvent('info', `Non-customer SMS from removed customer ${phone} - no auto-reply`);
-          return res.status(200).send("__IGNORE__");
+          return res.status(200).type('text/plain').send("__IGNORE__");
         }
       }
       
@@ -306,7 +306,7 @@ app.post('/reply', async (req, res) => {
     // Check if conversation is paused (human takeover)
     if (conversation.paused) {
       await logEvent('info', `AI is paused for ${phone}, no automated response sent.`);
-      return res.status(200).send("__HUMAN__");
+      return res.status(200).type('text/plain').send("__HUMAN__");
     }
 
     // Detect if user requests a human
@@ -314,7 +314,7 @@ app.post('/reply', async (req, res) => {
     if (humanRequestPattern.test(userMessage)) {
       await pool.query('UPDATE conversations SET paused=$1, requested_human=$2 WHERE phone=$3', [true, true, phone]);
       await logEvent('info', `User at ${phone} requested a human. Marked conversation as paused.`);
-      return res.status(200).send("__HUMAN__");
+      return res.status(200).type('text/plain').send("__HUMAN__");
     }
 
     // Check for inventory/stock queries
@@ -326,7 +326,7 @@ app.post('/reply', async (req, res) => {
         [phone, 'assistant', stockReply, new Date()]
       );
       await logEvent('info', `Inventory query detected from ${phone}. Sent stock fallback response.`);
-      return res.status(200).send(stockReply);
+      return res.status(200).type('text/plain').send(stockReply);
     }
 
     // Check for order status queries
@@ -485,7 +485,7 @@ app.post('/reply', async (req, res) => {
         'INSERT INTO messages(phone, sender, message, timestamp) VALUES($1, $2, $3, $4)',
         [phone, 'assistant', errorReply, new Date()]
       );
-      return res.status(200).send(errorReply);
+      return res.status(200).type('text/plain').send(errorReply);
     }
 
     if (!aiResponse) {
@@ -514,12 +514,12 @@ app.post('/reply', async (req, res) => {
 
     await logEvent('info', `Sending AI response to ${phone}: "${aiResponse}"`);
     // Send plain text for Tasker integration
-    res.status(200).send(aiResponse);
+    res.status(200).type('text/plain').send(aiResponse);
 
   } catch (err) {
     console.error("Error in /reply handler:", err);
     await logEvent('error', `Internal error processing SMS from ${phone}: ${err.message}`);
-    res.status(500).send('Sorry, something went wrong. Please try again later.');
+    res.status(500).type('text/plain').send('Sorry, something went wrong. Please try again later.');
   }
 });
 
