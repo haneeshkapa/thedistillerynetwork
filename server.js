@@ -510,6 +510,65 @@ app.post('/reply', async (req, res) => {
   }
 });
 
+// Human message logging endpoint (for Jonathan's phone)
+app.post('/human', async (req, res) => {
+  const incomingPhone = req.body.phone || req.body.From;
+  const incomingText = req.body.text || req.body.Body || '';
+  const messageType = req.body.type || 'unknown'; // 'incoming' or 'outgoing'
+  
+  if (!incomingPhone || incomingText === undefined) {
+    return res.status(400).json({ error: 'Missing phone or message text' });
+  }
+  
+  const phone = String(incomingPhone);
+  const userMessage = incomingText.trim();
+  const timestamp = new Date();
+
+  await logEvent('info', `Human message (${messageType}) with ${phone}: "${userMessage}"`);
+
+  try {
+    // Check/create conversation
+    let convResult = await pool.query('SELECT * FROM conversations WHERE phone=$1', [phone]);
+    let conversation = convResult.rows[0];
+    
+    if (!conversation) {
+      // New conversation: create and attempt to lookup customer name from Google Sheets
+      let name = null;
+      const customer = await findCustomerByPhone(phone);
+      if (customer && customer._rawData && customer._rawData[2]) {
+        name = customer._rawData[2]; // Assuming name is in column 2
+        await logEvent('info', `Customer identified: ${name} (phone ${phone})`);
+      } else {
+        await logEvent('info', `No customer record found for phone ${phone}`);
+      }
+      
+      await pool.query(
+        'INSERT INTO conversations(phone, name, paused, requested_human, last_active) VALUES($1, $2, $3, $4, $5)',
+        [phone, name, true, false, timestamp] // Set paused=true for human conversations
+      );
+      conversation = { phone, name, paused: true, requested_human: false };
+    } else {
+      // Update last_active and ensure conversation is marked as paused (human handling)
+      await pool.query('UPDATE conversations SET last_active=$1, paused=$2 WHERE phone=$3', [timestamp, true, phone]);
+    }
+
+    // Log the message with appropriate sender
+    const sender = messageType === 'outgoing' ? 'assistant' : 'user';
+    await pool.query(
+      'INSERT INTO messages(phone, sender, message, timestamp) VALUES($1, $2, $3, $4)',
+      [phone, sender, userMessage, timestamp]
+    );
+
+    await logEvent('info', `Human message logged for ${phone} as ${sender}: "${userMessage}"`);
+    res.json({ success: true, logged: true, sender: sender });
+
+  } catch (err) {
+    console.error("Error in /human handler:", err);
+    await logEvent('error', `Internal error logging human message from ${phone}: ${err.message}`);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
 // Admin Dashboard routes
 app.get('/admin', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'management.html'));
