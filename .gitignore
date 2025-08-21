@@ -6,3 +6,4 @@ node_modules/
 credentials.json
 data/knowledge*.json
 data/knowledge-sanitized*.json
+data/admin.json
