@@ -336,24 +336,29 @@ app.post('/reply', async (req, res) => {
           if (statusCell && statusCell.backgroundColor) {
             const bgColor = statusCell.backgroundColor;
             
+            // Normalize undefined color values to 0
+            const red = bgColor.red || 0;
+            const green = bgColor.green || 0;
+            const blue = bgColor.blue || 0;
+            
             // Map colors to status descriptions based on your color coding system
-            if (bgColor.red > 0.9 && bgColor.green < 0.3 && bgColor.blue < 0.3) {
+            if (red > 0.9 && green < 0.3 && blue < 0.3) {
               // Red - Want to cancel
               statusDescription = "Customer wants to cancel";
               statusColor = "red";
-            } else if (bgColor.red < 0.3 && bgColor.green > 0.7 && bgColor.blue < 0.3) {
+            } else if (red < 0.3 && green > 0.7 && blue < 0.3) {
               // Green - Shipped
               statusDescription = "Shipped";
               statusColor = "green";
-            } else if (bgColor.red > 0.8 && bgColor.green > 0.8 && bgColor.blue < 0.3) {
+            } else if (red > 0.8 && green > 0.8 && blue < 0.3) {
               // Yellow/Orange - In process
               statusDescription = "In process";
               statusColor = "yellow";
-            } else if (bgColor.red < 0.3 && bgColor.green > 0.5 && bgColor.blue > 0.7) {
+            } else if (red < 0.3 && green > 0.5 && blue > 0.7) {
               // Light blue - Call for update
               statusDescription = "Need to call for update";
               statusColor = "light blue";
-            } else if (bgColor.red < 0.3 && bgColor.green < 0.3 && bgColor.blue > 0.7) {
+            } else if (red < 0.3 && green < 0.3 && blue > 0.7) {
               // Dark blue - Important and calling
               statusDescription = "Priority - customer calling frequently";
               statusColor = "dark blue";
