@@ -1048,13 +1048,19 @@ async function processIncomingSMS(phone, message, source = 'twilio') {
   
   try {
     console.log(`🔍 Step 1: Customer lookup starting for ${phone}`);
-    // Customer lookup with timeout
+    // Customer lookup with reduced timeout for faster fallback
     customerInfo = await Promise.race([
       findCustomerByPhone(phone),
       new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Customer lookup timeout')), 8000)
+        setTimeout(() => reject(new Error('Customer lookup timeout')), 5000)
       )
     ]);
+    
+    // Validate customer data structure to catch corrupted records
+    if (customerInfo && (!customerInfo._rawData || !Array.isArray(customerInfo._rawData))) {
+      console.log(`⚠️ Customer data validation failed - corrupted record for ${phone}`);
+      customerInfo = null; // Treat as unknown customer
+    }
     
     console.log(`📞 Step 1 Complete: Customer lookup result for ${phone}:`, {
       found: !!customerInfo,
@@ -1065,6 +1071,8 @@ async function processIncomingSMS(phone, message, source = 'twilio') {
     });
   } catch (error) {
     console.log(`⚠️ Step 1 Failed: Customer lookup failed for ${phone}: ${error.message}`);
+    // Continue processing as unknown customer rather than failing completely
+    customerInfo = null;
   }
   
   try {
