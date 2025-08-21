@@ -83,6 +83,7 @@
     <div class="section">
       <h2>💬 Conversations</h2>
       <button id="refresh-conversations-btn" class="btn-secondary">Refresh Conversations</button>
+      <span id="live-indicator" style="color: #28a745; margin-left: 10px;">🟢 Live Updates (5s)</span>
       <ul id="conv-list"></ul>
       <div id="conv-detail" class="hidden">
         <h3>Conversation with <span id="conv-name"></span> (<span id="conv-phone"></span>)</h3>
@@ -472,11 +473,19 @@ async function initDashboard() {
   ]);
 }
 
-// Auto-refresh every 30 seconds
+// Auto-refresh every 5 seconds for real-time updates
 setInterval(() => {
   loadStats();
   loadConversations();
-}, 30000);
+  // If viewing a conversation, refresh its messages too
+  const convDetail = document.getElementById('conv-detail');
+  if (!convDetail.classList.contains('hidden')) {
+    const phoneElement = document.getElementById('conv-phone');
+    if (phoneElement && phoneElement.textContent) {
+      showConversation(phoneElement.textContent);
+    }
+  }
+}, 5000);
 
 // Initialize on page load
 initDashboard();
