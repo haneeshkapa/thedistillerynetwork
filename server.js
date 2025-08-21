@@ -1064,15 +1064,14 @@ async function processIncomingSMS(phone, message, source = 'twilio') {
       )
     ]);
     
-    // Special debugging for the problematic customer
+    // Debug customer data safely
     if (phone === '9786778131' || phone === '+19786778131') {
       console.log(`🐛 DEBUGGING CUSTOMER 9786778131:`, {
         customerFound: !!customerInfo,
         hasRawData: !!customerInfo?._rawData,
-        rawDataType: typeof customerInfo?._rawData,
-        rawDataLength: customerInfo?._rawData?.length,
-        rawDataSample: customerInfo?._rawData?.slice(0, 5), // First 5 columns
-        customerStructure: Object.keys(customerInfo || {})
+        rawDataLength: customerInfo?._rawData?.length || 0,
+        customerName: customerInfo?._rawData?.[2] || 'N/A',
+        orderId: customerInfo?._rawData?.[0] || 'N/A'
       });
     }
     
@@ -1148,18 +1147,34 @@ async function processIncomingSMS(phone, message, source = 'twilio') {
   try {
     console.log(`🔍 Step 4: AI response generation starting`);
     
-    // Sanitize customer data to prevent prompt injection or formatting issues
-    const sanitizeText = (text) => {
-      if (!text || typeof text !== 'string') return 'Unknown';
-      return text
-        .replace(/[\r\n\t]/g, ' ')  // Replace newlines and tabs with spaces
-        .replace(/[^\x20-\x7E]/g, '') // Remove non-printable ASCII characters  
-        .substring(0, 100) // Limit length to prevent extremely long fields
-        .trim();
-    };
+    // Safe customer data extraction with error handling
+    let customerName = 'Unknown';
+    let orderId = 'No Order';
     
-    const customerName = customerInfo?._rawData?.[2] ? sanitizeText(customerInfo._rawData[2]) : 'Unknown';
-    const orderId = customerInfo?._rawData?.[0] ? sanitizeText(customerInfo._rawData[0]) : 'No Order';
+    try {
+      if (customerInfo && customerInfo._rawData && Array.isArray(customerInfo._rawData)) {
+        // Sanitize customer data to prevent prompt injection
+        const sanitizeText = (text) => {
+          if (!text || typeof text !== 'string') return 'Unknown';
+          return String(text)
+            .replace(/[\r\n\t]/g, ' ')
+            .replace(/[^\x20-\x7E]/g, '')
+            .substring(0, 100)
+            .trim() || 'Unknown';
+        };
+        
+        if (customerInfo._rawData.length > 2 && customerInfo._rawData[2]) {
+          customerName = sanitizeText(customerInfo._rawData[2]);
+        }
+        if (customerInfo._rawData.length > 0 && customerInfo._rawData[0]) {
+          orderId = sanitizeText(customerInfo._rawData[0]);
+        }
+      }
+    } catch (sanitizeError) {
+      console.log(`⚠️ Customer data sanitization error: ${sanitizeError.message}`);
+      customerName = 'Unknown';
+      orderId = 'No Order';
+    }
     
     const prompt = `You are Jonathan, owner of a moonshine distillation equipment business. You are knowledgeable, friendly, and casual in your communication style.
 
