@@ -353,28 +353,32 @@ app.post('/reply', async (req, res) => {
             
             // Map colors to status descriptions based on your color coding system
             if (red > 0.9 && green < 0.3 && blue < 0.3) {
-              // Red - Want to cancel
-              statusDescription = "Customer wants to cancel";
+              // Red - Customer wants to cancel
+              statusDescription = "Customer wants to cancel (RED)";
               statusColor = "red";
             } else if (red < 0.3 && green > 0.7 && blue < 0.3) {
               // Green - Shipped
-              statusDescription = "Shipped";
+              statusDescription = "Shipped (GREEN)";
               statusColor = "green";
             } else if (red > 0.8 && green > 0.8 && blue < 0.3) {
-              // Yellow/Orange - In process
-              statusDescription = "In process";
+              // Yellow - In production
+              statusDescription = "In production (YELLOW)";
               statusColor = "yellow";
+            } else if (red > 0.7 && green < 0.7 && blue > 0.7) {
+              // Purple - Expediting order (at risk of cancellation)
+              statusDescription = "Expediting order - at risk of cancellation (PURPLE)";
+              statusColor = "purple";
             } else if (red < 0.3 && green > 0.5 && blue > 0.7) {
-              // Light blue - Call for update
-              statusDescription = "Need to call for update";
+              // Light blue - First step of antsy
+              statusDescription = "Customer getting impatient - needs update (LIGHT BLUE)";
               statusColor = "light blue";
             } else if (red < 0.3 && green < 0.3 && blue > 0.7) {
-              // Dark blue - Important and calling
-              statusDescription = "Priority - customer calling frequently";
+              // Dark blue - Second step of antsy
+              statusDescription = "Customer very impatient - second escalation (DARK BLUE)";
               statusColor = "dark blue";
             } else {
-              // White or other - Order comes in
-              statusDescription = "Order received";
+              // White - Order just received
+              statusDescription = "Order just received (WHITE)";
               statusColor = "white";
             }
           }
@@ -389,8 +393,13 @@ app.post('/reply', async (req, res) => {
         if (orderDate) orderInfo += `Order Date: ${orderDate}\n`;
         if (productOrdered) orderInfo += `Product Ordered: ${productOrdered}\n`;
         orderInfo += `Current Status: ${statusDescription}\n`;
-        if (trackingInfo) orderInfo += `Tracking: ${trackingInfo}\n`;
-        orderInfo += `\nIMPORTANT: You have full access to the customer's product details above. Always include the specific product name when discussing their order.\n`;
+        if (trackingInfo) orderInfo += `Email/Tracking: ${trackingInfo}\n`;
+        orderInfo += `\n🎨 COLOR CODE STATUS: ${statusColor} = ${statusDescription}\n`;
+        orderInfo += `\nIMPORTANT INSTRUCTIONS:\n`;
+        orderInfo += `- You have full access to the customer's product details above\n`;
+        orderInfo += `- Always include the specific product name when discussing their order\n`;
+        orderInfo += `- Follow the color-coded customer service approach for ${statusColor} status\n`;
+        orderInfo += `- Adjust your tone and response based on the customer's patience level indicated by the color\n`;
         
         await logEvent('info', `Order status lookup successful for ${phone}: ${statusDescription} (${statusColor})`);
       } else {
