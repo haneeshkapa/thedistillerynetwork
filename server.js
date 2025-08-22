@@ -58,15 +58,9 @@ if (GOOGLE_SERVICE_ACCOUNT_EMAIL && GOOGLE_PRIVATE_KEY && GOOGLE_SHEET_ID) {
     private_key: privateKey
   }).then(() => customerSheetDoc.loadInfo())
     .then(() => {
-      // Look for "Shopify" sheet tab by name
-      customerSheet = customerSheetDoc.sheetsByTitle['Shopify'];
-      if (!customerSheet) {
-        // Fallback to first sheet if "Shopify" not found
-        customerSheet = customerSheetDoc.sheetsByIndex[0];
-        console.log(`⚠️ "Shopify" sheet not found, using: ${customerSheet.title}`);
-      } else {
-        console.log(`✅ Google Sheet "Shopify" tab loaded: ${customerSheet.title}`);
-      }
+      // Use the first/default sheet tab
+      customerSheet = customerSheetDoc.sheetsByIndex[0];
+      console.log(`✅ Google Sheet loaded (default tab): ${customerSheet.title}`);
     })
     .catch(err => {
       console.error("❌ Failed to load Google Sheet:", err.message);
