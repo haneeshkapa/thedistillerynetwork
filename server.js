@@ -444,18 +444,19 @@ app.post('/reply', async (req, res) => {
         // Generate order ID from row position or use date
         const orderId = `SP-${customer.rowNumber || 'unknown'}`;
         const orderStatus = "In Progress"; // Default status since Shopify doesn't have status column
+        const trackingInfo = email; // Use email as tracking info
         
         // Get cell background color to determine actual status
         let statusDescription = "Order received";
         let statusColor = "white"; // default
         
         try {
-          // Load only specific cells to reduce memory usage
+          // Load only specific cells to reduce memory usage  
           const rowIndex = customer.googleRowIndex;
           await customerSheet.loadCells(`A${rowIndex}:J${rowIndex}`); // Load only the customer's row
           
           // Check the background color of the status cell (column 4, assuming 0-indexed)
-          const statusCell = customerSheet.getCell(rowIndex, 4);
+          const statusCell = customerSheet.getCell(rowIndex - 1, 4); // Adjust for 0-based indexing
           if (statusCell && statusCell.backgroundColor) {
             const bgColor = statusCell.backgroundColor;
             
