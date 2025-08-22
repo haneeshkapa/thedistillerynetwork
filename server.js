@@ -34,10 +34,15 @@ const {
   PORT = 3000
 } = process.env;
 
-// Set up PostgreSQL connection pool
+// Set up PostgreSQL connection pool with optimized settings
 const pool = new Pool({
   connectionString: DATABASE_URL,
-  ssl: DATABASE_URL?.includes('localhost') ? false : { rejectUnauthorized: false }
+  ssl: DATABASE_URL?.includes('localhost') ? false : { rejectUnauthorized: false },
+  max: 10, // Maximum pool size
+  min: 2,  // Minimum pool size
+  connectionTimeoutMillis: 5000, // Connection timeout
+  idleTimeoutMillis: 30000,      // Idle connection timeout
+  query_timeout: 10000            // Query timeout
 });
 
 // Initialize Anthropic Claude client
@@ -198,13 +203,27 @@ function normalizePhoneNumber(phone) {
   return digitsOnly;
 }
 
+// Cache for customer lookups to reduce Google Sheets API calls
+const customerCache = new Map();
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
 // Helper function to find customer by phone in Google Sheets
 async function findCustomerByPhone(phone) {
   if (!customerSheet) return null;
   
+  const normalizedPhone = normalizePhoneNumber(phone);
+  const cacheKey = normalizedPhone;
+  
+  // Check cache first
+  const cached = customerCache.get(cacheKey);
+  if (cached && (Date.now() - cached.timestamp) < CACHE_DURATION) {
+    console.log(`📋 Cache hit for phone: ${phone}`);
+    return cached.customer;
+  }
+  
   try {
-    // Limit rows loaded to reduce memory usage
-    const rows = await customerSheet.getRows({ limit: 1000, offset: 0 });
+    // Limit rows loaded to reduce memory usage - reduced from 1000 to 500
+    const rows = await customerSheet.getRows({ limit: 500, offset: 0 });
     const normalizedInputPhone = normalizePhoneNumber(phone);
     
     console.log(`🔍 Looking for phone: ${phone} -> normalized: ${normalizedInputPhone}`);
@@ -248,6 +267,20 @@ async function findCustomerByPhone(phone) {
       foundCustomer.googleRowIndex = foundRowIndex;
     }
     
+    // Cache the result
+    if (foundCustomer) {
+      customerCache.set(cacheKey, {
+        customer: foundCustomer,
+        timestamp: Date.now()
+      });
+      
+      // Clean up old cache entries to prevent memory leaks
+      if (customerCache.size > 100) {
+        const oldestKeys = Array.from(customerCache.keys()).slice(0, 20);
+        oldestKeys.forEach(key => customerCache.delete(key));
+      }
+    }
+    
     return foundCustomer;
   } catch (error) {
     console.error('Google Sheets lookup error:', error.message);
@@ -255,6 +288,47 @@ async function findCustomerByPhone(phone) {
     return null;
   }
 }
+
+// Add timeout middleware for all routes to prevent hanging requests
+const timeoutMiddleware = (req, res, next) => {
+  const timeout = 25000; // 25 second timeout
+  res.setTimeout(timeout, () => {
+    console.log('Request timeout for:', req.path);
+    if (!res.headersSent) {
+      res.status(408).type('text/plain').send('Request timeout. Please try again.');
+    }
+  });
+  next();
+};
+
+app.use(timeoutMiddleware);
+
+// Memory monitoring and cleanup
+const monitorMemory = () => {
+  const memUsage = process.memoryUsage();
+  const heapUsedMB = Math.round(memUsage.heapUsed / 1024 / 1024);
+  const rssMB = Math.round(memUsage.rss / 1024 / 1024);
+  
+  console.log(`📊 Memory: ${heapUsedMB}MB heap, ${rssMB}MB total`);
+  
+  // Clear cache if memory usage is high
+  if (heapUsedMB > 350) { // Alert at 350MB heap usage
+    console.log('⚠️ High memory usage detected, clearing cache...');
+    customerCache.clear();
+    
+    // Force garbage collection if available
+    if (global.gc) {
+      global.gc();
+      console.log('🗑️ Garbage collection triggered');
+    }
+  }
+};
+
+// Monitor memory every 2 minutes
+setInterval(monitorMemory, 120000);
+
+// Initial memory report
+setTimeout(monitorMemory, 5000);
 
 // SMS Reply endpoint (webhook for incoming SMS)
 app.post('/reply', async (req, res) => {
@@ -376,9 +450,9 @@ app.post('/reply', async (req, res) => {
         let statusColor = "white"; // default
         
         try {
-          // Load the sheet cells to get formatting information
-          await customerSheet.loadCells();
+          // Load only specific cells to reduce memory usage
           const rowIndex = customer.googleRowIndex;
+          await customerSheet.loadCells(`A${rowIndex}:J${rowIndex}`); // Load only the customer's row
           
           // Check the background color of the status cell (column 4, assuming 0-indexed)
           const statusCell = customerSheet.getCell(rowIndex, 4);
@@ -449,20 +523,20 @@ app.post('/reply', async (req, res) => {
       }
     }
 
-    // Retrieve relevant knowledge
-    const knowledgeChunks = await knowledgeRetriever.retrieveRelevantChunks(userMessage, 3);
+    // Retrieve relevant knowledge - reduced from 3 to 2 to save processing time
+    const knowledgeChunks = await knowledgeRetriever.retrieveRelevantChunks(userMessage, 2);
     await logEvent('info', `Knowledge retrieved: found ${knowledgeChunks.length} relevant pieces.`);
 
     // Get personality from database
     const persResult = await pool.query('SELECT content FROM personality LIMIT 1');
     const personalityText = persResult.rows.length ? persResult.rows[0].content : "";
     
-    // Get conversation history
+    // Get conversation history - reduced from 10 to 6 to save memory and processing
     const historyResult = await pool.query(
       `SELECT sender, message FROM messages 
        WHERE phone=$1 
        ORDER BY timestamp DESC 
-       LIMIT 10`, [phone]
+       LIMIT 6`, [phone]
     );
     const historyMessages = historyResult.rows.reverse(); // oldest first
 
@@ -499,7 +573,7 @@ app.post('/reply', async (req, res) => {
     try {
       const completion = await anthropicClient.messages.create({
         model: 'claude-3-5-sonnet-20241022',
-        max_tokens: 300,
+        max_tokens: 200, // Reduced from 300 to save processing time
         temperature: 0.7,
         system: systemContent,
         messages: messages
