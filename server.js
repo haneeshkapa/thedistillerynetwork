@@ -268,9 +268,9 @@ app.post('/reply', async (req, res) => {
       // New conversation: check if customer exists in Google Sheets
       const customer = await findCustomerByPhone(phone);
       if (!customer || !customer._rawData || !customer._rawData[2]) {
-        // Customer not found in Google Sheets - return special response for Tasker
+        // Customer not found in Google Sheets - return no content so Tasker ignores
         await logEvent('info', `Non-customer SMS from ${phone} - no auto-reply`);
-        return res.status(200).type('text/plain').send("__IGNORE__");
+        return res.status(204).send(); // No Content = Tasker won't send SMS
       }
       
       // Customer found - proceed with conversation
@@ -287,9 +287,9 @@ app.post('/reply', async (req, res) => {
       if (!conversation.name) {
         const customer = await findCustomerByPhone(phone);
         if (!customer || !customer._rawData || !customer._rawData[2]) {
-          // Customer no longer in Google Sheets - return special response for Tasker
+          // Customer no longer in Google Sheets - return no content so Tasker ignores  
           await logEvent('info', `Non-customer SMS from removed customer ${phone} - no auto-reply`);
-          return res.status(200).type('text/plain').send("__IGNORE__");
+          return res.status(204).send(); // No Content = Tasker won't send SMS
         }
       }
       
@@ -303,10 +303,10 @@ app.post('/reply', async (req, res) => {
       [phone, 'user', userMessage, timestamp]
     );
 
-    // Check if conversation is paused (human takeover)
+    // Check if conversation is paused (human takeover)  
     if (conversation.paused) {
       await logEvent('info', `AI is paused for ${phone}, no automated response sent.`);
-      return res.status(200).type('text/plain').send("__HUMAN__");
+      return res.status(204).send(); // No Content = Tasker won't send SMS
     }
 
     // Detect if user requests a human
@@ -314,7 +314,7 @@ app.post('/reply', async (req, res) => {
     if (humanRequestPattern.test(userMessage)) {
       await pool.query('UPDATE conversations SET paused=$1, requested_human=$2 WHERE phone=$3', [true, true, phone]);
       await logEvent('info', `User at ${phone} requested a human. Marked conversation as paused.`);
-      return res.status(200).type('text/plain').send("__HUMAN__");
+      return res.status(204).send(); // No Content = Tasker won't send SMS
     }
 
     // Check for inventory/stock queries
