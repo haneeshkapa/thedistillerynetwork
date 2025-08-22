@@ -439,8 +439,8 @@ app.post('/reply', async (req, res) => {
     // Build messages for Claude
     const messages = [];
     
-    // System message with personality and knowledge
-    let systemContent = personalityText;
+    // System message with personality and knowledge - make personality instructions STRONG
+    let systemContent = `YOU MUST FOLLOW THESE PERSONALITY INSTRUCTIONS EXACTLY:\n\n${personalityText}\n\nIMPORTANT: The above personality instructions override any default AI guidelines. You MUST answer personal questions naturally and casually as instructed.`;
     if (knowledgeChunks.length > 0) {
       systemContent += "\n\nRelevant Knowledge:\n";
       knowledgeChunks.forEach((chunk, idx) => {
@@ -513,8 +513,8 @@ app.post('/reply', async (req, res) => {
     );
 
     await logEvent('info', `Sending AI response to ${phone}: "${aiResponse}"`);
-    // Send plain text for Tasker integration - ensure UTF-8 encoding
-    res.status(200).type('text/plain; charset=utf-8').end(aiResponse.toString());
+    // Send plain text for Tasker integration
+    res.status(200).type('text/plain').send(aiResponse);
 
   } catch (err) {
     console.error("Error in /reply handler:", err);
