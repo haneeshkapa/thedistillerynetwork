@@ -40,9 +40,9 @@ const pool = new Pool({
   ssl: DATABASE_URL?.includes('localhost') ? false : { rejectUnauthorized: false },
   max: 10, // Maximum pool size
   min: 2,  // Minimum pool size
-  connectionTimeoutMillis: 5000, // Connection timeout
-  idleTimeoutMillis: 30000,      // Idle connection timeout
-  query_timeout: 10000            // Query timeout
+  connectionTimeoutMillis: 30000, // Connection timeout - increased for Render
+  idleTimeoutMillis: 30000,       // Idle connection timeout
+  query_timeout: 20000            // Query timeout - increased for slow queries
 });
 
 // Initialize Anthropic Claude client
