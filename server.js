@@ -415,12 +415,27 @@ app.post('/reply', async (req, res) => {
       return res.status(200).type('text/plain').send(stockReply);
     }
 
-    // Check for order status queries
-    const orderPattern = /order|ordered|purchase|purchased|bought|status|tracking|shipped|delivery|when will|eta/i;
+    // Check for order status queries first
+    const orderPattern = /order|ordered|purchase|purchased|bought|status|tracking|shipped|delivery|when will|eta|where.*my|my.*order/i;
+    
+    if (!orderPattern.test(userMessage)) {
+      // Not an order-related message - don't respond regardless of customer status
+      await logEvent('info', `Non-order message from ${phone} - no auto-reply: "${userMessage}"`);
+      return res.status(204).send(); // No Content = Tasker won't send SMS
+    }
+    
+    // This is an order-related message - check if they're a known customer
+    const customer = await findCustomerByPhone(phone);
+    
+    if (!customer || !customer._rawData) {
+      // Not a customer in Google Sheets - don't respond even to order queries
+      await logEvent('info', `Non-customer order query from ${phone} - no auto-reply`);
+      return res.status(204).send(); // No Content = Tasker won't send SMS
+    }
+    
+    // This is an order query from a known customer - process it
     let orderInfo = "";
-    if (orderPattern.test(userMessage)) {
-      const customer = await findCustomerByPhone(phone);
-      if (customer && customer._rawData) {
+    if (customer && customer._rawData) {
         // Extract order information from Shopify Google Sheets row
         const rowData = customer._rawData;
         const customerEmail = rowData[0] || '';
@@ -551,6 +566,12 @@ app.post('/reply', async (req, res) => {
       knowledgeChunks.forEach((chunk, idx) => {
         systemContent += `- ${chunk}\n`;
       });
+    }
+    // Add customer information if available
+    if (customer && customer._rawData) {
+      const customerName = customer._rawData[2] || '';
+      const customerEmail = customer._rawData[0] || '';
+      systemContent += `\n\nCUSTOMER CONTEXT:\nThis is a known customer: ${customerName || 'Name not available'}\nEmail: ${customerEmail || 'Email not available'}\n\n`;
     }
     if (orderInfo) {
       systemContent += orderInfo;
@@ -880,32 +901,56 @@ app.post('/api/sync-shopify', async (req, res) => {
     // Remove old Shopify entries
     await pool.query("DELETE FROM knowledge WHERE source='shopify'");
     
-    // Insert each product as a knowledge entry
+    // Insert each product and its variants as separate knowledge entries
     for (let product of products) {
-      const title = product.title;
-      let contentText = "";
+      const baseTitle = product.title;
+      let baseContentText = "";
       
       if (product.body_html) {
         // Remove HTML tags
-        contentText = product.body_html.replace(/<[^>]+>/g, '');
+        baseContentText = product.body_html.replace(/<[^>]+>/g, '');
       }
       
-      // Get lowest variant price
+      // Insert each variant as a separate knowledge entry
       if (product.variants && product.variants.length > 0) {
-        let price = product.variants[0].price;
         for (let variant of product.variants) {
-          if (parseFloat(variant.price) < parseFloat(price)) {
-            price = variant.price;
+          // Create variant-specific title and content
+          let variantTitle = baseTitle;
+          let variantContent = baseContentText;
+          
+          // Add variant option details (like size) to the title
+          if (variant.option1) {
+            variantTitle += ` - ${variant.option1}`;
+            variantContent += `\nSize: ${variant.option1}`;
           }
+          if (variant.option2) {
+            variantTitle += ` ${variant.option2}`;
+            variantContent += `\nOption: ${variant.option2}`;
+          }
+          if (variant.option3) {
+            variantTitle += ` ${variant.option3}`;
+            variantContent += `\nVariant: ${variant.option3}`;
+          }
+          
+          // Add pricing
+          if (variant.price) {
+            variantContent += `\nPrice: $${variant.price}`;
+          }
+          
+          // Add availability
+          if (variant.inventory_quantity !== null) {
+            variantContent += `\nInventory: ${variant.inventory_quantity > 0 ? 'In Stock' : 'Out of Stock'}`;
+          }
+          
+          variantContent = variantContent.trim();
+          await pool.query('INSERT INTO knowledge(title, content, source) VALUES($1, $2, $3)', 
+            [variantTitle, variantContent, 'shopify']);
         }
-        if (price) {
-          contentText += ` Price: $${price}`;
-        }
+      } else {
+        // No variants, insert base product
+        await pool.query('INSERT INTO knowledge(title, content, source) VALUES($1, $2, $3)', 
+          [baseTitle, baseContentText.trim(), 'shopify']);
       }
-      
-      contentText = contentText.trim();
-      await pool.query('INSERT INTO knowledge(title, content, source) VALUES($1, $2, $3)', 
-        [title, contentText, 'shopify']);
     }
     
     await logEvent('info', `Knowledge base synced with Shopify: ${products.length} products updated.`);
