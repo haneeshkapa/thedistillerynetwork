@@ -222,8 +222,8 @@ async function findCustomerByPhone(phone) {
   }
   
   try {
-    // Limit rows loaded to reduce memory usage - reduced from 1000 to 500
-    const rows = await customerSheet.getRows({ limit: 500, offset: 0 });
+    // Load all rows to ensure complete customer coverage 
+    const rows = await customerSheet.getRows({ limit: 1000, offset: 0 });
     const normalizedInputPhone = normalizePhoneNumber(phone);
     
     console.log(`🔍 Looking for phone: ${phone} -> normalized: ${normalizedInputPhone}`);
