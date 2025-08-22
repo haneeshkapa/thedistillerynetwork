@@ -347,14 +347,29 @@ app.post('/reply', async (req, res) => {
     if (orderPattern.test(userMessage)) {
       const customer = await findCustomerByPhone(phone);
       if (customer && customer._rawData) {
-        // Extract order information from Google Sheets row
+        // Extract order information from Shopify Google Sheets row
         const rowData = customer._rawData;
-        const orderId = rowData[0] || '';
+        const customerEmail = rowData[0] || '';
         const productOrdered = rowData[1] || '';
         const customerName = rowData[2] || '';
         const orderDate = rowData[3] || '';
-        const orderStatus = rowData[4] || '';
-        const trackingInfo = rowData[5] || '';
+        const totalPrice = rowData[4] || '';
+        const email = rowData[5] || '';
+        const phone = rowData[6] || '';
+        const shippingAddress = rowData[7] || '';
+        const shippingCity = rowData[8] || '';
+        
+        console.log(`📋 Order Info Extract for ${phone}:`);
+        console.log(`  Customer: ${customerName}`);
+        console.log(`  Product: ${productOrdered}`);
+        console.log(`  Order Date: ${orderDate}`);
+        console.log(`  Total: ${totalPrice}`);
+        console.log(`  Raw Data Sample:`, rowData.slice(0, 10));
+        const shippingZip = rowData[9] || '';
+        
+        // Generate order ID from row position or use date
+        const orderId = `SP-${customer.rowNumber || 'unknown'}`;
+        const orderStatus = "In Progress"; // Default status since Shopify doesn't have status column
         
         // Get cell background color to determine actual status
         let statusDescription = "Order received";
@@ -421,6 +436,9 @@ app.post('/reply', async (req, res) => {
         orderInfo += `\n🎨 COLOR CODE STATUS: ${statusColor} = ${statusDescription}\n`;
         orderInfo += `\nIMPORTANT INSTRUCTIONS:\n`;
         orderInfo += `- You have full access to the customer's product details above\n`;
+        orderInfo += `- DO NOT ask for order numbers, products, or details - you already have them!\n`;
+        orderInfo += `- NEVER ask "Can you provide your order number?" - you can see their order!\n`;
+        orderInfo += `- NEVER ask "What product did you order?" - you can see: ${productOrdered}\n`;
         orderInfo += `- Always include the specific product name when discussing their order\n`;
         orderInfo += `- Follow the color-coded customer service approach for ${statusColor} status\n`;
         orderInfo += `- Adjust your tone and response based on the customer's patience level indicated by the color\n`;
