@@ -513,8 +513,8 @@ app.post('/reply', async (req, res) => {
     );
 
     await logEvent('info', `Sending AI response to ${phone}: "${aiResponse}"`);
-    // Send plain text for Tasker integration
-    res.status(200).type('text/plain').send(aiResponse);
+    // Send plain text for Tasker integration - ensure UTF-8 encoding
+    res.status(200).type('text/plain; charset=utf-8').end(aiResponse.toString());
 
   } catch (err) {
     console.error("Error in /reply handler:", err);
