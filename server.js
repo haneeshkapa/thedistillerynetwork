@@ -75,6 +75,19 @@ if (GOOGLE_SERVICE_ACCOUNT_EMAIL && GOOGLE_PRIVATE_KEY && GOOGLE_SHEET_ID) {
     })
     .catch(err => {
       console.error("❌ Failed to load Google Sheet:", err.message);
+      
+      // Retry Google Sheets connection after delay
+      setTimeout(async () => {
+        try {
+          console.log("🔄 Retrying Google Sheets connection...");
+          await customerSheetDoc.useServiceAccountAuth(googleAuth);
+          await customerSheetDoc.loadInfo();
+          customerSheet = customerSheetDoc.sheetsByTitle['Shopify'] || customerSheetDoc.sheetsByIndex[0];
+          console.log(`✅ Google Sheet loaded on retry: ${customerSheet.title}`);
+        } catch (retryErr) {
+          console.error("❌ Google Sheets retry failed:", retryErr.message);
+        }
+      }, 10000); // Retry after 10 seconds
     });
 } else {
   console.warn("⚠️ Google Sheets credentials not provided");
@@ -84,10 +97,14 @@ if (GOOGLE_SERVICE_ACCOUNT_EMAIL && GOOGLE_PRIVATE_KEY && GOOGLE_SHEET_ID) {
 const knowledgeRetriever = new AdvancedKnowledgeRetriever(pool);
 const priceValidator = new PriceValidator();
 
-// Database initialization
-async function initDatabase() {
-  try {
-    console.log('🔧 Initializing database...');
+// Database initialization with retry logic
+async function initDatabase(retries = 3) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      console.log(`🔧 Initializing database... (attempt ${attempt}/${retries})`);
+      
+      // Test connection first
+      await pool.query('SELECT 1');
     
     // Conversations table
     await pool.query(`CREATE TABLE IF NOT EXISTS conversations (
@@ -172,9 +189,21 @@ Free shipping to continental USA
       console.log('✅ Default personality inserted');
     }
     
-    console.log('✅ Database initialized successfully');
-  } catch (err) {
-    console.error('❌ Database initialization error:', err.message);
+      console.log('✅ Database initialized successfully');
+      return; // Success, exit retry loop
+    } catch (err) {
+      console.error(`❌ Database initialization error (attempt ${attempt}/${retries}):`, err.message);
+      
+      if (attempt === retries) {
+        console.error('❌ All database initialization attempts failed. Server will continue but database features may not work.');
+        return;
+      }
+      
+      // Wait before retry (exponential backoff)
+      const waitTime = Math.pow(2, attempt) * 1000;
+      console.log(`⏱️ Waiting ${waitTime/1000}s before retry...`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
   }
 }
 
