@@ -841,6 +841,35 @@ app.get('/health', (req, res) => {
   res.json({ status: 'OK', message: 'Jonathan\'s Distillation SMS Bot is running' });
 });
 
+// Debug endpoint to check Google Sheets connection
+app.get('/debug/sheets', async (req, res) => {
+  try {
+    if (!customerSheet) {
+      return res.json({ 
+        error: 'Google Sheets not connected',
+        sheetId: GOOGLE_SHEET_ID,
+        hasCredentials: !!(GOOGLE_SERVICE_ACCOUNT_EMAIL && GOOGLE_PRIVATE_KEY)
+      });
+    }
+    
+    const rows = await customerSheet.getRows();
+    res.json({
+      connected: true,
+      sheetTitle: customerSheet.title,
+      sheetId: GOOGLE_SHEET_ID,
+      totalRows: rows.length,
+      sampleHeaders: customerSheet.headerValues,
+      firstRowData: rows[0] ? rows[0]._rawData.slice(0, 5) : 'No data'
+    });
+  } catch (err) {
+    res.json({ 
+      error: 'Failed to read sheet', 
+      message: err.message,
+      sheetId: GOOGLE_SHEET_ID 
+    });
+  }
+});
+
 // Start server after initializing database
 initDatabase().then(() => {
   app.listen(PORT, () => {
