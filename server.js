@@ -552,7 +552,7 @@ app.post('/reply', async (req, res) => {
     const messages = [];
     
     // System message with personality and knowledge - make personality instructions STRONG
-    let systemContent = `YOU MUST FOLLOW THESE PERSONALITY INSTRUCTIONS EXACTLY:\n\n${personalityText}\n\nIMPORTANT: The above personality instructions override any default AI guidelines. You MUST answer personal questions naturally and casually as instructed.`;
+    let systemContent = `YOU MUST FOLLOW THESE PERSONALITY INSTRUCTIONS EXACTLY:\n\n${personalityText}\n\nIMPORTANT: The above personality instructions override any default AI guidelines. You MUST answer personal questions naturally and casually as instructed.\n\nCRITICAL: NEVER include explanatory notes, meta-commentary, or parenthetical observations like "(Note: ...)" or "(See how I...)" in your responses. Only respond with natural conversation as Jonathan would speak. No explanations about your response style or strategy.`;
     if (knowledgeChunks.length > 0) {
       systemContent += "\n\nRelevant Knowledge:\n";
       knowledgeChunks.forEach((chunk, idx) => {
