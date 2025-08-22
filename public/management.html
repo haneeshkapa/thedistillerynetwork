@@ -271,9 +271,12 @@ async function showConversation(phone) {
       }
       msgDiv.appendChild(p);
     });
-    // Auto-scroll and flash indicator for updates
+    
+    // Only auto-scroll if user was already at bottom (preserve scroll position)
     const wasAtBottom = msgDiv.scrollTop + msgDiv.clientHeight >= msgDiv.scrollHeight - 10;
-    msgDiv.scrollTop = msgDiv.scrollHeight;
+    if (wasAtBottom || msgDiv.scrollTop === 0) {
+      msgDiv.scrollTop = msgDiv.scrollHeight;
+    }
     
     // Flash indicator for new messages
     if (messages.length !== parseInt(msgDiv.dataset.lastCount || '0')) {
