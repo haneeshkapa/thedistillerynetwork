@@ -527,9 +527,8 @@ app.post('/reply', async (req, res) => {
         orderInfo += `- Adjust your tone and response based on the customer's patience level indicated by the color\n`;
         
         await logEvent('info', `Order status lookup successful for ${phone}: ${statusDescription} (${statusColor})`);
-      } else {
+    } else {
         await logEvent('info', `Order status lookup failed for ${phone}: customer not found`);
-      }
     }
 
     // Retrieve relevant knowledge - reduced from 3 to 2 to save processing time
