@@ -415,27 +415,20 @@ app.post('/reply', async (req, res) => {
       return res.status(200).type('text/plain').send(stockReply);
     }
 
-    // Check for order status queries first
-    const orderPattern = /order|ordered|purchase|purchased|bought|status|tracking|shipped|delivery|when will|eta|where.*my|my.*order/i;
-    
-    if (!orderPattern.test(userMessage)) {
-      // Not an order-related message - don't respond regardless of customer status
-      await logEvent('info', `Non-order message from ${phone} - no auto-reply: "${userMessage}"`);
-      return res.status(204).send(); // No Content = Tasker won't send SMS
-    }
-    
-    // This is an order-related message - check if they're a known customer
+    // Always check if this is a known customer first - only respond to customers in Google Sheets
     const customer = await findCustomerByPhone(phone);
     
     if (!customer || !customer._rawData) {
-      // Not a customer in Google Sheets - don't respond even to order queries
-      await logEvent('info', `Non-customer order query from ${phone} - no auto-reply`);
+      // Not a customer in Google Sheets - don't respond to anyone not in sheets
+      await logEvent('info', `Non-customer SMS from ${phone} - no auto-reply`);
       return res.status(204).send(); // No Content = Tasker won't send SMS
     }
     
-    // This is an order query from a known customer - process it
+    // This is a known customer - respond with personality to any message
+    // Check if it's an order-related message for special handling
+    const orderPattern = /order|ordered|purchase|purchased|bought|status|tracking|shipped|delivery|when will|eta|where.*my|my.*order/i;
     let orderInfo = "";
-    if (customer && customer._rawData) {
+    if (orderPattern.test(userMessage) && customer && customer._rawData) {
         // Extract order information from Shopify Google Sheets row
         const rowData = customer._rawData;
         const customerEmail = rowData[0] || '';
