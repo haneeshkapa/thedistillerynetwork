@@ -203,13 +203,18 @@ async function findCustomerByPhone(phone) {
   if (!customerSheet) return null;
   
   try {
-    const rows = await customerSheet.getRows();
+    // Limit rows loaded to reduce memory usage
+    const rows = await customerSheet.getRows({ limit: 1000, offset: 0 });
     const normalizedInputPhone = normalizePhoneNumber(phone);
     
     console.log(`🔍 Looking for phone: ${phone} -> normalized: ${normalizedInputPhone}`);
     
     let foundCustomer = null;
     let foundRowIndex = -1;
+    
+    // Log memory usage for monitoring
+    const memUsage = process.memoryUsage();
+    console.log(`📊 Memory: ${Math.round(memUsage.heapUsed / 1024 / 1024)}MB heap, ${Math.round(memUsage.rss / 1024 / 1024)}MB total`);
     
     rows.forEach((row, index) => {
       const phoneField = row._rawData[6]; // Assuming phone is in column 6
