@@ -970,7 +970,7 @@ app.post('/voice/stream-realtime', async (req, res) => {
     await pool.query(`
       INSERT INTO voice_calls (phone, twilio_call_sid, direction, status) 
       VALUES ($1, $2, $3, $4)
-    `, [phone, CallSid, 'inbound', 'streaming']);
+    `, [phone, CallSid, 'inbound', 'in-progress']);
 
     // Check customer for context
     const customer = await findCustomerByPhone(phone);
