@@ -983,17 +983,8 @@ app.post('/voice/stream-realtime', async (req, res) => {
 
     const twiml = new twilio.twiml.VoiceResponse();
     
-    // Brief personalized greeting then start streaming
-    const greeting = customer ? 
-      `Hey ${customerName}! I'm Jonathan's AI assistant.` :
-      `Hey! I'm Jonathan's AI assistant.`;
-
-    twiml.say({
-      voice: 'Polly.Joanna',
-      language: 'en-US'
-    }, greeting);
-    
-    // Start media streaming for real-time audio
+    // Start media streaming immediately for real-time audio
+    // The OpenAI Realtime API will handle the greeting
     const connect = twiml.connect();
     connect.stream({
       url: `wss://${req.headers.host}/voice/stream/${CallSid}?phone=${encodeURIComponent(phone)}&customer=${encodeURIComponent(customerName)}`,
@@ -2411,8 +2402,20 @@ REAL-TIME VOICE CONVERSATION RULES:
         }
       }));
 
-      // Start the conversation without explicit greeting (already done via TwiML)
-      console.log(`🎤 Real-time conversation ready for ${customerName}`);
+      // Send initial greeting message to start the conversation
+      const greeting = customer ? 
+        `Hey ${customerName}! I'm Jonathan's AI assistant. What can I help you with?` :
+        `Hey there! I'm Jonathan's AI assistant. What can I help you with?`;
+      
+      openaiWs.send(JSON.stringify({
+        type: 'response.create',
+        response: {
+          modalities: ['text', 'audio'],
+          instructions: `Say this greeting: "${greeting}"`
+        }
+      }));
+      
+      console.log(`🎤 Real-time conversation started with greeting for ${customerName}`);
     });
 
     // Handle messages from Twilio (caller audio)
