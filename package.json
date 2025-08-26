@@ -27,9 +27,11 @@
     "mysql2": "^3.14.3",
     "node-cron": "^4.2.1",
     "node-fetch": "^3.3.2",
+    "openai": "^4.104.0",
     "pdf-parse": "^1.1.1",
     "pg": "^8.16.3",
     "redis": "^5.8.1",
+    "twilio": "^5.8.0",
     "winston": "^3.17.0",
     "winston-elasticsearch": "^0.17.4",
     "xlsx": "^0.18.5"

@@ -12,6 +12,8 @@ const { GoogleSpreadsheet } = require('google-spreadsheet');
 const { Pool } = require('pg');
 const path = require('path');
 const redis = require('redis');
+const OpenAI = require('openai');
+const twilio = require('twilio');
 
 const AdvancedKnowledgeRetriever = require('./advanced-retriever');
 const PriceValidator = require('./price-validator');
@@ -37,6 +39,10 @@ const {
   REDIS_PORT,
   REDIS_PASSWORD,
   REDIS_DB,
+  OPENAI_API_KEY,
+  TWILIO_ACCOUNT_SID,
+  TWILIO_AUTH_TOKEN,
+  TWILIO_PHONE_NUMBER,
   PORT = 3000
 } = process.env;
 
@@ -93,6 +99,26 @@ if (redisClient) {
 const anthropicClient = new Anthropic({
   apiKey: ANTHROPIC_API_KEY
 });
+
+// Initialize OpenAI client for voice functionality
+let openaiClient = null;
+if (OPENAI_API_KEY) {
+  openaiClient = new OpenAI({
+    apiKey: OPENAI_API_KEY
+  });
+  console.log('✅ OpenAI client initialized for voice functionality');
+} else {
+  console.warn('⚠️ OpenAI API key not provided - voice features disabled');
+}
+
+// Initialize Twilio client for voice calls
+let twilioClient = null;
+if (TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN) {
+  twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+  console.log('✅ Twilio client initialized for voice calls');
+} else {
+  console.warn('⚠️ Twilio credentials not provided - voice calls disabled');
+}
 
 // Google Sheets setup for customer data
 let customerSheetDoc = null;
@@ -200,6 +226,23 @@ async function initDatabase(retries = 3) {
       level TEXT CHECK (level IN ('info', 'error', 'warning')),
       message TEXT NOT NULL,
       timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`);
+    
+    // Voice calls table
+    await pool.query(`CREATE TABLE IF NOT EXISTS voice_calls (
+      id SERIAL PRIMARY KEY,
+      phone TEXT NOT NULL,
+      twilio_call_sid TEXT UNIQUE,
+      direction TEXT CHECK (direction IN ('inbound', 'outbound')),
+      status TEXT CHECK (status IN ('ringing', 'in-progress', 'completed', 'busy', 'no-answer', 'failed', 'canceled')),
+      duration INTEGER DEFAULT 0,
+      recording_url TEXT,
+      transcription TEXT,
+      ai_responses TEXT[], -- Array of AI responses during the call
+      cost_estimate DECIMAL(10,4),
+      started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      ended_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`);
 
     // Insert default personality if none exists
@@ -909,6 +952,369 @@ app.post('/reply', async (req, res) => {
   }
 });
 
+// Voice call webhook endpoint - handles incoming calls
+app.post('/voice/incoming', async (req, res) => {
+  const { From: callerPhone, CallSid, CallStatus } = req.body;
+  
+  if (!callerPhone || !CallSid) {
+    return res.status(400).send('Missing required call parameters');
+  }
+
+  const phone = normalizePhoneNumber(callerPhone);
+  await logEvent('info', `Incoming voice call from ${phone} (CallSid: ${CallSid})`);
+
+  try {
+    // Check if customer exists in Google Sheets
+    const customer = await findCustomerByPhone(phone);
+    
+    // Helper function to get customer name
+    function getCustomerName(customer) {
+      if (!customer) return null;
+      try {
+        return customer.get('Name') || customer.get('Customer') || customer.get('name') || customer._rawData[2];
+      } catch (err) {
+        return customer._rawData[2] || null;
+      }
+    }
+    
+    const customerName = getCustomerName(customer);
+    
+    // Log the call
+    await pool.query(`
+      INSERT INTO voice_calls (phone, twilio_call_sid, direction, status) 
+      VALUES ($1, $2, $3, $4)
+    `, [phone, CallSid, 'inbound', CallStatus || 'ringing']);
+
+    // Generate TwiML response
+    const twiml = new twilio.twiml.VoiceResponse();
+    
+    if (!customer || !customerName) {
+      // Non-customer: play a polite message and hang up
+      twiml.say({
+        voice: 'alice',
+        language: 'en-US'
+      }, "Thank you for calling Jonathan's Distillation Equipment. Please visit our website at moonshine stills dot com or send us a text message for assistance. Goodbye.");
+      
+      await logEvent('info', `Non-customer voice call from ${phone} - played website message`);
+    } else {
+      // Customer: start interactive voice session
+      const greeting = customerName ? 
+        `Hello ${customerName}! This is Jonathan's Distillation Equipment. I'm your AI assistant. How can I help you today?` :
+        `Hello! This is Jonathan's Distillation Equipment. I'm your AI assistant. How can I help you today?`;
+      
+      twiml.say({
+        voice: 'alice',
+        language: 'en-US'
+      }, greeting);
+      
+      // Start recording and gather speech input
+      twiml.record({
+        timeout: 10,
+        transcribe: true,
+        transcribeCallback: '/voice/transcription',
+        action: '/voice/process-speech',
+        method: 'POST',
+        maxLength: 30
+      });
+      
+      await logEvent('info', `Customer voice call from ${phone} (${customerName}) - started AI session`);
+    }
+    
+    res.type('text/xml');
+    res.send(twiml.toString());
+
+  } catch (error) {
+    console.error('Error handling incoming call:', error);
+    await logEvent('error', `Failed to handle incoming call from ${phone}: ${error.message}`);
+    
+    // Fallback TwiML
+    const twiml = new twilio.twiml.VoiceResponse();
+    twiml.say({
+      voice: 'alice',
+      language: 'en-US'
+    }, "Sorry, we're experiencing technical difficulties. Please call back later or visit moonshine stills dot com.");
+    
+    res.type('text/xml');
+    res.send(twiml.toString());
+  }
+});
+
+// Process speech input from customer
+app.post('/voice/process-speech', async (req, res) => {
+  const { From: callerPhone, CallSid, RecordingUrl, TranscriptionText } = req.body;
+  
+  if (!callerPhone || !CallSid) {
+    return res.status(400).send('Missing required call parameters');
+  }
+
+  const phone = normalizePhoneNumber(callerPhone);
+  
+  try {
+    // Update call record with transcription
+    if (RecordingUrl) {
+      await pool.query(`
+        UPDATE voice_calls 
+        SET recording_url = $1, transcription = $2, status = 'in-progress'
+        WHERE twilio_call_sid = $3
+      `, [RecordingUrl, TranscriptionText || '', CallSid]);
+    }
+    
+    if (!TranscriptionText || TranscriptionText.trim() === '') {
+      // No speech detected, ask again
+      const twiml = new twilio.twiml.VoiceResponse();
+      twiml.say({
+        voice: 'alice',
+        language: 'en-US'
+      }, "I didn't catch that. Could you please repeat your question?");
+      
+      twiml.record({
+        timeout: 10,
+        transcribe: true,
+        transcribeCallback: '/voice/transcription',
+        action: '/voice/process-speech',
+        method: 'POST',
+        maxLength: 30
+      });
+      
+      res.type('text/xml');
+      res.send(twiml.toString());
+      return;
+    }
+
+    await logEvent('info', `Voice transcription from ${phone}: "${TranscriptionText}"`);
+
+    // Use the same logic as SMS to generate AI response
+    const customer = await findCustomerByPhone(phone);
+    
+    // Get existing conversation or create new one
+    let convResult = await pool.query('SELECT * FROM conversations WHERE phone=$1', [phone]);
+    let conversation = convResult.rows[0];
+    
+    if (!conversation && customer) {
+      // Helper function to get customer name
+      function getCustomerName(customer) {
+        if (!customer) return null;
+        try {
+          return customer.get('Name') || customer.get('Customer') || customer.get('name') || customer._rawData[2];
+        } catch (err) {
+          return customer._rawData[2] || null;
+        }
+      }
+      
+      const name = getCustomerName(customer);
+      if (name) {
+        await pool.query(
+          'INSERT INTO conversations(phone, name, paused, requested_human, last_active) VALUES($1, $2, $3, $4, $5)',
+          [phone, name, false, false, new Date()]
+        );
+        conversation = { phone, name, paused: false, requested_human: false };
+      }
+    }
+
+    // Log the voice message as a user message
+    await pool.query(
+      'INSERT INTO messages(phone, sender, message, timestamp) VALUES($1, $2, $3, $4)',
+      [phone, 'user', `[VOICE] ${TranscriptionText}`, new Date()]
+    );
+
+    // Generate AI response using existing SMS logic
+    const aiResponse = await generateAIResponse(phone, TranscriptionText, customer);
+    
+    // Log AI response
+    await pool.query(
+      'INSERT INTO messages(phone, sender, message, timestamp) VALUES($1, $2, $3, $4)',
+      [phone, 'assistant', `[VOICE] ${aiResponse}`, new Date()]
+    );
+
+    // Update call log with AI response
+    await pool.query(`
+      UPDATE voice_calls 
+      SET ai_responses = array_append(COALESCE(ai_responses, '{}'), $1)
+      WHERE twilio_call_sid = $2
+    `, [aiResponse, CallSid]);
+
+    // Convert AI response to speech and continue conversation
+    const twiml = new twilio.twiml.VoiceResponse();
+    twiml.say({
+      voice: 'alice',
+      language: 'en-US'
+    }, aiResponse);
+    
+    // Ask if they need anything else
+    twiml.say({
+      voice: 'alice',
+      language: 'en-US'
+    }, "Is there anything else I can help you with?");
+    
+    twiml.record({
+      timeout: 10,
+      transcribe: true,
+      transcribeCallback: '/voice/transcription',
+      action: '/voice/process-speech',
+      method: 'POST',
+      maxLength: 30
+    });
+    
+    await logEvent('info', `Voice AI response to ${phone}: "${aiResponse}"`);
+    
+    res.type('text/xml');
+    res.send(twiml.toString());
+
+  } catch (error) {
+    console.error('Error processing speech:', error);
+    await logEvent('error', `Failed to process speech from ${phone}: ${error.message}`);
+    
+    const twiml = new twilio.twiml.VoiceResponse();
+    twiml.say({
+      voice: 'alice',
+      language: 'en-US'
+    }, "I'm sorry, I'm having trouble right now. Please call back later or send us a text message.");
+    twiml.hangup();
+    
+    res.type('text/xml');
+    res.send(twiml.toString());
+  }
+});
+
+// Handle call completion
+app.post('/voice/call-status', async (req, res) => {
+  const { CallSid, CallStatus, CallDuration } = req.body;
+  
+  if (CallSid) {
+    try {
+      await pool.query(`
+        UPDATE voice_calls 
+        SET status = $1, duration = $2, ended_at = CURRENT_TIMESTAMP
+        WHERE twilio_call_sid = $3
+      `, [CallStatus, parseInt(CallDuration) || 0, CallSid]);
+      
+      await logEvent('info', `Call ${CallSid} ended with status: ${CallStatus}, duration: ${CallDuration}s`);
+    } catch (error) {
+      console.error('Error updating call status:', error);
+    }
+  }
+  
+  res.sendStatus(200);
+});
+
+// Transcription webhook (for additional processing)
+app.post('/voice/transcription', async (req, res) => {
+  const { CallSid, TranscriptionText, TranscriptionStatus } = req.body;
+  
+  if (CallSid && TranscriptionText) {
+    try {
+      await pool.query(`
+        UPDATE voice_calls 
+        SET transcription = $1
+        WHERE twilio_call_sid = $2
+      `, [TranscriptionText, CallSid]);
+      
+      await logEvent('info', `Transcription updated for call ${CallSid}: "${TranscriptionText}"`);
+    } catch (error) {
+      console.error('Error updating transcription:', error);
+    }
+  }
+  
+  res.sendStatus(200);
+});
+
+// Helper function to generate AI response (extracted from SMS logic)
+async function generateAIResponse(phone, userMessage, customer = null) {
+  try {
+    // Retrieve relevant knowledge
+    const knowledgeChunks = await knowledgeRetriever.retrieveRelevantChunks(userMessage, 2);
+    
+    // Get personality and system instructions from database
+    const [persResult, systemResult] = await Promise.all([
+      pool.query('SELECT content FROM personality LIMIT 1'),
+      pool.query('SELECT content FROM system_instructions LIMIT 1')
+    ]);
+    
+    const personalityText = persResult.rows.length ? persResult.rows[0].content : "";
+    const systemTemplate = systemResult.rows.length ? systemResult.rows[0].content : 
+      `YOU MUST FOLLOW THESE PERSONALITY INSTRUCTIONS EXACTLY:\n\n{PERSONALITY}`;
+    
+    // Get conversation history
+    const historyResult = await pool.query(
+      `SELECT sender, message FROM messages 
+       WHERE phone=$1 
+       ORDER BY timestamp DESC 
+       LIMIT 6`, [phone]
+    );
+    const historyMessages = historyResult.rows.reverse();
+
+    // Prepare knowledge content
+    let knowledgeContent = "";
+    if (knowledgeChunks.length > 0) {
+      knowledgeContent = "Relevant Knowledge:\n";
+      knowledgeChunks.forEach((chunk, idx) => {
+        knowledgeContent += `- ${chunk}\n`;
+      });
+    }
+    
+    // Prepare customer context
+    let customerContext = "";
+    if (customer && customer._rawData) {
+      function getCustomerData(customer, headerName, fallbackIndex) {
+        try {
+          const value = customer.get(headerName);
+          if (value) return value;
+        } catch (err) {
+          return customer._rawData[fallbackIndex] || '';
+        }
+      }
+      
+      const customerName = getCustomerData(customer, 'Name', 2) || getCustomerData(customer, 'Customer', 2);
+      const customerEmail = getCustomerData(customer, 'Email', 0);
+      customerContext = `This is a known customer: ${customerName || 'Name not available'}\nEmail: ${customerEmail || 'Email not available'}`;
+    }
+    
+    // Build system content using template with replacements
+    let systemContent = systemTemplate
+      .replace('{PERSONALITY}', personalityText + '\n\nIMPORTANT: You are responding via VOICE CALL. Keep responses conversational, clear, and under 100 words. Speak naturally as if talking to someone on the phone.')
+      .replace('{KNOWLEDGE}', knowledgeContent)
+      .replace('{CUSTOMER_CONTEXT}', customerContext)
+      .replace('{ORDER_INFO}', ''); // Voice calls don't need detailed order info
+
+    // Build messages for Claude
+    const messages = [];
+    
+    // Add conversation history (excluding current message)
+    const conversationHistory = historyMessages.slice(0, -1);
+    for (let msg of conversationHistory) {
+      if (msg.sender === 'user') {
+        messages.push({ role: "user", content: msg.message });
+      } else if (msg.sender === 'assistant') {
+        messages.push({ role: "assistant", content: msg.message });
+      }
+    }
+
+    // Add current user message
+    messages.push({ role: "user", content: userMessage });
+
+    // Call Claude API
+    const completion = await anthropicClient.messages.create({
+      model: 'claude-3-5-sonnet-20241022',
+      max_tokens: 150, // Shorter responses for voice
+      temperature: 0.7,
+      system: systemContent,
+      messages: messages
+    });
+    
+    let aiResponse = completion.content[0].text.trim();
+    
+    // Clean up response for voice (remove SMS-specific patterns)
+    aiResponse = aiResponse.replace(/\[VOICE\]/g, '');
+    aiResponse = aiResponse.replace(/moonshinestills\.com/g, 'moonshine stills dot com');
+    
+    return aiResponse;
+
+  } catch (error) {
+    console.error('Error generating AI response:', error);
+    return "I'm sorry, I'm having trouble right now. Please call back later or visit our website.";
+  }
+}
+
 // Human message logging endpoint (for Jonathan's phone)
 app.post('/human', async (req, res) => {
   const incomingPhone = req.body.phone || req.body.From;
@@ -1268,6 +1674,23 @@ app.post('/api/sync-shopify', async (req, res) => {
     console.error("Error syncing Shopify products:", err);
     await logEvent('error', `Shopify sync failed: ${err.message}`);
     res.status(500).json({ error: "Failed to sync Shopify products" });
+  }
+});
+
+// Get voice calls
+app.get('/api/voice-calls', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT vc.*, c.name as customer_name 
+      FROM voice_calls vc
+      LEFT JOIN conversations c ON vc.phone = c.phone
+      ORDER BY vc.created_at DESC 
+      LIMIT 50
+    `);
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Error fetching voice calls:", err);
+    res.status(500).json({ error: "Failed to fetch voice calls" });
   }
 });
 
