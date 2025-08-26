@@ -1222,14 +1222,15 @@ app.post('/voice/process', async (req, res) => {
   }
 });
 
-// Simple transcription logging - just save to database
+// Smart transcription processing - Process AI response and call back customer
 app.post('/voice/transcription', async (req, res) => {
-  const { CallSid, TranscriptionText, TranscriptionStatus } = req.body;
+  const { CallSid, TranscriptionText, TranscriptionStatus, From } = req.body;
   
   console.log(`📝 TRANSCRIPTION CALLBACK: CallSid=${CallSid}, Status=${TranscriptionStatus}`);
   console.log(`📝 TRANSCRIPTION TEXT: "${TranscriptionText}"`);
   
   try {
+    // Save transcription to database
     await pool.query(`
       UPDATE voice_calls 
       SET transcription = $1
@@ -1237,8 +1238,99 @@ app.post('/voice/transcription', async (req, res) => {
     `, [TranscriptionText, CallSid]);
     
     console.log(`✅ TRANSCRIPTION SAVED to database`);
+    
+    // Process transcription with AI if we have actual text
+    if (TranscriptionText && TranscriptionText.trim() && 
+        TranscriptionText.trim() !== 'undefined' && 
+        TranscriptionText.length > 2) {
+      
+      const phone = normalizePhoneNumber(From);
+      console.log(`🤖 PROCESSING AI RESPONSE for: "${TranscriptionText}"`);
+      
+      // Get customer data
+      const customer = await findCustomerByPhone(phone);
+      
+      // Log user message to database
+      await pool.query(
+        'INSERT INTO messages(phone, sender, message, timestamp) VALUES($1, $2, $3, $4)',
+        [phone, 'user', `[VOICE] ${TranscriptionText}`, new Date()]
+      );
+
+      // Generate AI response
+      const aiResponse = await generateAIResponse(phone, TranscriptionText, customer);
+      
+      console.log(`🤖 AI RESPONSE GENERATED: "${aiResponse}"`);
+      
+      // Log AI response to database
+      await pool.query(
+        'INSERT INTO messages(phone, sender, message, timestamp) VALUES($1, $2, $3, $4)',
+        [phone, 'assistant', `[VOICE] ${aiResponse}`, new Date()]
+      );
+
+      // Update voice call record
+      await pool.query(`
+        UPDATE voice_calls 
+        SET ai_responses = array_append(COALESCE(ai_responses, '{}'), $1)
+        WHERE twilio_call_sid = $2
+      `, [aiResponse, CallSid]);
+
+      // Call customer back with AI response
+      if (twilioClient && process.env.TWILIO_PHONE_NUMBER) {
+        try {
+          // Clean response for voice
+          let voiceResponse = aiResponse
+            .replace(/moonshinestills\.com/g, 'moonshine stills dot com')
+            .replace(/\*\*/g, '')
+            .replace(/\*/g, '')
+            .replace(/\n/g, ' ')
+            .trim();
+          
+          // Keep response reasonable length for voice
+          if (voiceResponse.length > 300) {
+            voiceResponse = voiceResponse.substring(0, 297) + '...';
+          }
+          
+          const call = await twilioClient.calls.create({
+            from: process.env.TWILIO_PHONE_NUMBER,
+            to: phone,
+            twiml: `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Joanna" language="en-US">${voiceResponse}</Say>
+  <Say voice="Polly.Joanna" language="en-US">If you have another question, feel free to call back. Thanks!</Say>
+</Response>`
+          });
+          
+          console.log(`📞 AI RESPONSE CALL MADE: ${call.sid} to ${phone}`);
+          console.log(`🎤 AI SAID: "${voiceResponse}"`);
+          
+          // Log the outbound call
+          await pool.query(`
+            INSERT INTO voice_calls (phone, twilio_call_sid, direction, status) 
+            VALUES ($1, $2, $3, $4)
+          `, [phone, call.sid, 'outbound', 'completed']);
+          
+        } catch (callError) {
+          console.error('❌ ERROR MAKING AI RESPONSE CALL:', callError);
+          
+          // Fallback: Send SMS with AI response
+          try {
+            await twilioClient.messages.create({
+              from: process.env.TWILIO_PHONE_NUMBER,
+              to: phone,
+              body: `Jonathan's AI Assistant: ${aiResponse}`
+            });
+            console.log(`💬 SENT SMS RESPONSE as fallback to ${phone}`);
+          } catch (smsError) {
+            console.error('❌ SMS FALLBACK ALSO FAILED:', smsError);
+          }
+        }
+      }
+    } else {
+      console.log(`❓ TRANSCRIPTION TOO SHORT OR EMPTY: "${TranscriptionText}"`);
+    }
+    
   } catch (error) {
-    console.error('❌ TRANSCRIPTION SAVE ERROR:', error);
+    console.error('❌ TRANSCRIPTION PROCESSING ERROR:', error);
   }
   
   res.send('OK');
