@@ -1169,14 +1169,15 @@ app.post('/voice/incoming', async (req, res) => {
   }
 });
 
-// Wait endpoint - Just acknowledge recording and wait for transcription
+// Process speech with delay to wait for transcription
 app.post('/voice/process', async (req, res) => {
-  const { From: callerPhone, CallSid, RecordingUrl } = req.body;
+  const { From: callerPhone, CallSid, RecordingUrl, TranscriptionText } = req.body;
   
   const phone = normalizePhoneNumber(callerPhone);
   
-  console.log(`⏳ WAITING FOR TRANSCRIPTION from ${phone}`);
+  console.log(`🎤 PROCESSING SPEECH from ${phone}`);
   console.log(`📼 Recording URL: ${RecordingUrl}`);
+  console.log(`📝 TranscriptionText from request: "${TranscriptionText}"`);
   
   try {
     // Update call record with recording URL
@@ -1186,35 +1187,107 @@ app.post('/voice/process', async (req, res) => {
       WHERE twilio_call_sid = $2
     `, [RecordingUrl, CallSid]);
     
-    // Just say we're processing and wait - transcription will arrive separately
     const twiml = new twilio.twiml.VoiceResponse();
-    twiml.say({
-      voice: 'Polly.Joanna',
-      language: 'en-US'
-    }, "I'm processing that. One moment please.");
     
-    // Give time for transcription to arrive, then hang up - customer can call back
-    twiml.pause({ length: 3 });
-    twiml.say({
-      voice: 'Polly.Joanna',
-      language: 'en-US'
-    }, "I'll process your request and call you back if I need more information. Thanks for calling!");
-    
-    twiml.hangup();
+    // If we have transcription in the request, use it immediately
+    if (TranscriptionText && TranscriptionText.trim() && TranscriptionText !== 'undefined') {
+      console.log(`✅ USING IMMEDIATE TRANSCRIPTION: "${TranscriptionText}"`);
+      await processTranscriptionAndRespond(phone, TranscriptionText, CallSid, twiml);
+    } else {
+      // No immediate transcription - wait for it with a pause
+      console.log(`⏳ WAITING FOR TRANSCRIPTION to arrive...`);
+      
+      twiml.say({
+        voice: 'Polly.Joanna',
+        language: 'en-US'
+      }, "Let me think about that for a moment.");
+      
+      // Give time for transcription callback to update database, then check
+      twiml.pause({ length: 4 });
+      
+      // Redirect to endpoint that checks for transcription
+      twiml.redirect('/voice/check-transcription?callSid=' + CallSid + '&phone=' + encodeURIComponent(phone));
+    }
     
     res.type('text/xml');
     res.send(twiml.toString());
     
-    console.log(`✅ PROCESSING ACKNOWLEDGMENT SENT for ${phone}`);
-    
   } catch (error) {
-    console.error(`❌ VOICE WAIT ERROR for ${phone}:`, error);
+    console.error(`❌ VOICE PROCESSING ERROR for ${phone}:`, error);
     
     const twiml = new twilio.twiml.VoiceResponse();
     twiml.say({
       voice: 'Polly.Joanna',
       language: 'en-US'
-    }, "I'm having trouble processing your request. Please send us a text message instead.");
+    }, "I'm having trouble processing that. Let me try again - what can I help you with?");
+    
+    twiml.record({
+      timeout: 8,
+      transcribe: true,
+      transcribeCallback: '/voice/transcription',
+      action: '/voice/process',
+      method: 'POST',
+      maxLength: 30,
+      playBeep: false
+    });
+    
+    res.type('text/xml');
+    res.send(twiml.toString());
+  }
+});
+
+// Check for transcription and respond
+app.get('/voice/check-transcription', async (req, res) => {
+  const { callSid, phone } = req.query;
+  
+  console.log(`🔍 CHECKING TRANSCRIPTION for CallSid: ${callSid}`);
+  
+  try {
+    // Get transcription from database
+    const result = await pool.query(
+      'SELECT transcription FROM voice_calls WHERE twilio_call_sid = $1',
+      [callSid]
+    );
+    
+    const twiml = new twilio.twiml.VoiceResponse();
+    
+    if (result.rows[0]?.transcription && result.rows[0].transcription.trim() && 
+        result.rows[0].transcription !== 'undefined') {
+      
+      const transcription = result.rows[0].transcription;
+      console.log(`✅ FOUND TRANSCRIPTION: "${transcription}"`);
+      
+      await processTranscriptionAndRespond(phone, transcription, callSid, twiml);
+    } else {
+      console.log(`❓ NO TRANSCRIPTION YET, asking user to repeat`);
+      
+      twiml.say({
+        voice: 'Polly.Joanna',
+        language: 'en-US'
+      }, "I didn't quite catch that. Could you repeat your question?");
+      
+      twiml.record({
+        timeout: 8,
+        transcribe: true,
+        transcribeCallback: '/voice/transcription',
+        action: '/voice/process',
+        method: 'POST',
+        maxLength: 30,
+        playBeep: false
+      });
+    }
+    
+    res.type('text/xml');
+    res.send(twiml.toString());
+    
+  } catch (error) {
+    console.error(`❌ ERROR CHECKING TRANSCRIPTION:`, error);
+    
+    const twiml = new twilio.twiml.VoiceResponse();
+    twiml.say({
+      voice: 'Polly.Joanna',
+      language: 'en-US'
+    }, "I'm having technical difficulties. Please try calling back or send us a text message.");
     
     twiml.hangup();
     res.type('text/xml');
@@ -1222,15 +1295,82 @@ app.post('/voice/process', async (req, res) => {
   }
 });
 
-// Smart transcription processing - Process AI response and call back customer
+// Helper function to process transcription and create response
+async function processTranscriptionAndRespond(phone, transcription, callSid, twiml) {
+  console.log(`🤖 PROCESSING: "${transcription}" for ${phone}`);
+  
+  // Get customer data
+  const customer = await findCustomerByPhone(phone);
+  
+  // Log user message
+  await pool.query(
+    'INSERT INTO messages(phone, sender, message, timestamp) VALUES($1, $2, $3, $4)',
+    [phone, 'user', `[VOICE] ${transcription}`, new Date()]
+  );
+
+  // Generate AI response
+  const aiResponse = await generateAIResponse(phone, transcription, customer);
+  
+  console.log(`🤖 AI RESPONSE: "${aiResponse}"`);
+  
+  // Log AI response
+  await pool.query(
+    'INSERT INTO messages(phone, sender, message, timestamp) VALUES($1, $2, $3, $4)',
+    [phone, 'assistant', `[VOICE] ${aiResponse}`, new Date()]
+  );
+
+  // Update voice call record
+  await pool.query(`
+    UPDATE voice_calls 
+    SET ai_responses = array_append(COALESCE(ai_responses, '{}'), $1)
+    WHERE twilio_call_sid = $2
+  `, [aiResponse, callSid]);
+
+  // Clean response for voice
+  let voiceResponse = aiResponse
+    .replace(/moonshinestills\.com/g, 'moonshine stills dot com')
+    .replace(/\*\*/g, '')
+    .replace(/\*/g, '')
+    .replace(/\n/g, ' ')
+    .trim();
+  
+  // Keep reasonable length
+  if (voiceResponse.length > 300) {
+    voiceResponse = voiceResponse.substring(0, 297) + '...';
+  }
+
+  // Respond with AI answer
+  twiml.say({
+    voice: 'Polly.Joanna',
+    language: 'en-US'
+  }, voiceResponse);
+  
+  // Continue conversation
+  twiml.say({
+    voice: 'Polly.Joanna',
+    language: 'en-US'
+  }, "Anything else I can help you with?");
+
+  twiml.record({
+    timeout: 8,
+    transcribe: true,
+    transcribeCallback: '/voice/transcription',
+    action: '/voice/process',
+    method: 'POST',
+    maxLength: 30,
+    playBeep: false
+  });
+}
+
+// Simple transcription callback - just save to database for processing
 app.post('/voice/transcription', async (req, res) => {
-  const { CallSid, TranscriptionText, TranscriptionStatus, From } = req.body;
+  const { CallSid, TranscriptionText, TranscriptionStatus } = req.body;
   
   console.log(`📝 TRANSCRIPTION CALLBACK: CallSid=${CallSid}, Status=${TranscriptionStatus}`);
   console.log(`📝 TRANSCRIPTION TEXT: "${TranscriptionText}"`);
   
   try {
-    // Save transcription to database
+    // Save transcription to database for the check-transcription endpoint to find
     await pool.query(`
       UPDATE voice_calls 
       SET transcription = $1
@@ -1238,99 +1378,8 @@ app.post('/voice/transcription', async (req, res) => {
     `, [TranscriptionText, CallSid]);
     
     console.log(`✅ TRANSCRIPTION SAVED to database`);
-    
-    // Process transcription with AI if we have actual text
-    if (TranscriptionText && TranscriptionText.trim() && 
-        TranscriptionText.trim() !== 'undefined' && 
-        TranscriptionText.length > 2) {
-      
-      const phone = normalizePhoneNumber(From);
-      console.log(`🤖 PROCESSING AI RESPONSE for: "${TranscriptionText}"`);
-      
-      // Get customer data
-      const customer = await findCustomerByPhone(phone);
-      
-      // Log user message to database
-      await pool.query(
-        'INSERT INTO messages(phone, sender, message, timestamp) VALUES($1, $2, $3, $4)',
-        [phone, 'user', `[VOICE] ${TranscriptionText}`, new Date()]
-      );
-
-      // Generate AI response
-      const aiResponse = await generateAIResponse(phone, TranscriptionText, customer);
-      
-      console.log(`🤖 AI RESPONSE GENERATED: "${aiResponse}"`);
-      
-      // Log AI response to database
-      await pool.query(
-        'INSERT INTO messages(phone, sender, message, timestamp) VALUES($1, $2, $3, $4)',
-        [phone, 'assistant', `[VOICE] ${aiResponse}`, new Date()]
-      );
-
-      // Update voice call record
-      await pool.query(`
-        UPDATE voice_calls 
-        SET ai_responses = array_append(COALESCE(ai_responses, '{}'), $1)
-        WHERE twilio_call_sid = $2
-      `, [aiResponse, CallSid]);
-
-      // Call customer back with AI response
-      if (twilioClient && process.env.TWILIO_PHONE_NUMBER) {
-        try {
-          // Clean response for voice
-          let voiceResponse = aiResponse
-            .replace(/moonshinestills\.com/g, 'moonshine stills dot com')
-            .replace(/\*\*/g, '')
-            .replace(/\*/g, '')
-            .replace(/\n/g, ' ')
-            .trim();
-          
-          // Keep response reasonable length for voice
-          if (voiceResponse.length > 300) {
-            voiceResponse = voiceResponse.substring(0, 297) + '...';
-          }
-          
-          const call = await twilioClient.calls.create({
-            from: process.env.TWILIO_PHONE_NUMBER,
-            to: phone,
-            twiml: `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say voice="Polly.Joanna" language="en-US">${voiceResponse}</Say>
-  <Say voice="Polly.Joanna" language="en-US">If you have another question, feel free to call back. Thanks!</Say>
-</Response>`
-          });
-          
-          console.log(`📞 AI RESPONSE CALL MADE: ${call.sid} to ${phone}`);
-          console.log(`🎤 AI SAID: "${voiceResponse}"`);
-          
-          // Log the outbound call
-          await pool.query(`
-            INSERT INTO voice_calls (phone, twilio_call_sid, direction, status) 
-            VALUES ($1, $2, $3, $4)
-          `, [phone, call.sid, 'outbound', 'completed']);
-          
-        } catch (callError) {
-          console.error('❌ ERROR MAKING AI RESPONSE CALL:', callError);
-          
-          // Fallback: Send SMS with AI response
-          try {
-            await twilioClient.messages.create({
-              from: process.env.TWILIO_PHONE_NUMBER,
-              to: phone,
-              body: `Jonathan's AI Assistant: ${aiResponse}`
-            });
-            console.log(`💬 SENT SMS RESPONSE as fallback to ${phone}`);
-          } catch (smsError) {
-            console.error('❌ SMS FALLBACK ALSO FAILED:', smsError);
-          }
-        }
-      }
-    } else {
-      console.log(`❓ TRANSCRIPTION TOO SHORT OR EMPTY: "${TranscriptionText}"`);
-    }
-    
   } catch (error) {
-    console.error('❌ TRANSCRIPTION PROCESSING ERROR:', error);
+    console.error('❌ TRANSCRIPTION SAVE ERROR:', error);
   }
   
   res.send('OK');
