@@ -2307,6 +2307,8 @@ initDatabase().then(() => {
   
   // Store active voice sessions
   const activeSessions = new Map();
+  
+  console.log(`🔌 WebSocket server created and ready on port ${PORT}`);
 
   wss.on('connection', (ws, req) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
@@ -2317,12 +2319,22 @@ initDatabase().then(() => {
     console.log(`🔥 REAL-TIME WebSocket connected: CallSid=${callSid}, Phone=${phone}, Customer=${customerName}`);
     
     // Initialize OpenAI Realtime API connection
+    console.log(`🔌 Attempting OpenAI Realtime connection for ${callSid}`);
     const openaiWs = new WebSocket('wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01', {
       headers: {
         'Authorization': `Bearer ${OPENAI_API_KEY}`,
         'OpenAI-Beta': 'realtime=v1'
       }
     });
+    
+    // Add connection timeout
+    const connectionTimeout = setTimeout(() => {
+      if (openaiWs.readyState !== WebSocket.OPEN) {
+        console.error(`❌ OpenAI connection timeout for ${callSid}`);
+        openaiWs.close();
+        ws.close();
+      }
+    }, 10000); // 10 second timeout
 
     // Store session info
     const sessionData = {
@@ -2338,6 +2350,7 @@ initDatabase().then(() => {
 
     // Configure OpenAI session when connected
     openaiWs.on('open', async () => {
+      clearTimeout(connectionTimeout);
       console.log(`🔥 OpenAI Realtime STREAMING connected for call ${callSid}`);
       
       // Get customer context
@@ -2517,8 +2530,15 @@ REAL-TIME VOICE CONVERSATION RULES:
     });
 
     openaiWs.on('error', (error) => {
+      clearTimeout(connectionTimeout);
       console.error(`❌ OpenAI WebSocket error for call ${callSid}:`, error);
       logEvent('error', `OpenAI WebSocket error for ${phone}: ${error.message}`);
+      
+      // Close Twilio connection if OpenAI fails
+      if (ws.readyState === WebSocket.OPEN) {
+        console.log(`🔌 Closing Twilio WebSocket due to OpenAI error for ${callSid}`);
+        ws.close();
+      }
     });
 
     ws.on('error', (error) => {
