@@ -967,17 +967,39 @@ app.post('/voice/incoming', async (req, res) => {
     // Check if customer exists in Google Sheets
     const customer = await findCustomerByPhone(phone);
     
-    // Helper function to get customer name
+    // Helper function to get customer name with better fallback logic
     function getCustomerName(customer) {
       if (!customer) return null;
+      
+      // Try multiple approaches to get the name
       try {
-        return customer.get('Name') || customer.get('Customer') || customer.get('name') || customer._rawData[2];
+        // Try header-based access
+        const headerName = customer.get('Name') || customer.get('Customer') || customer.get('name');
+        if (headerName) return headerName;
       } catch (err) {
-        return customer._rawData[2] || null;
+        // Header access failed, continue to raw data
       }
+      
+      // Try raw data access with multiple possible positions
+      if (customer._rawData && customer._rawData.length > 0) {
+        // Try positions 0, 1, 2 for name
+        for (let i = 0; i < Math.min(customer._rawData.length, 5); i++) {
+          const value = customer._rawData[i];
+          if (value && typeof value === 'string' && value.trim() && !value.includes('@') && !value.startsWith('+') && !value.startsWith('$')) {
+            // Found a non-email, non-phone, non-price value - likely a name
+            return value.trim();
+          }
+        }
+      }
+      
+      return null;
     }
     
     const customerName = getCustomerName(customer);
+    console.log(`🔍 Customer lookup result: customer=${!!customer}, customerName="${customerName}"`);
+    if (customer && customer._rawData) {
+      console.log(`📋 Raw customer data:`, customer._rawData.slice(0, 5));
+    }
     
     // Log the call
     await pool.query(`
@@ -988,7 +1010,8 @@ app.post('/voice/incoming', async (req, res) => {
     // Generate TwiML response
     const twiml = new twilio.twiml.VoiceResponse();
     
-    if (!customer || !customerName) {
+    // Be more lenient - if we found a customer record, proceed with AI
+    if (!customer) {
       // Non-customer: play a polite message and hang up
       twiml.say({
         voice: 'alice',
@@ -997,10 +1020,14 @@ app.post('/voice/incoming', async (req, res) => {
       
       await logEvent('info', `Non-customer voice call from ${phone} - played website message`);
     } else {
-      // Customer: start interactive voice session
+      // Customer: start interactive voice session  
       const greeting = customerName ? 
         `Hello ${customerName}! This is Jonathan's Distillation Equipment. I'm your AI assistant. How can I help you today?` :
         `Hello! This is Jonathan's Distillation Equipment. I'm your AI assistant. How can I help you today?`;
+      
+      console.log(`🎤 Starting AI voice session for ${phone} with greeting: "${greeting}"`);
+      
+      await logEvent('info', `Customer voice call from ${phone} (${customerName || 'Unknown'}) - started AI session`);
       
       twiml.say({
         voice: 'alice',
