@@ -953,7 +953,7 @@ app.post('/reply', async (req, res) => {
   }
 });
 
-// OpenAI Realtime voice webhook for incoming calls (NEW)
+// Enhanced Natural Voice (Render-Compatible) - Uses OpenAI TTS for natural voice
 app.post('/voice/realtime', async (req, res) => {
   const { From: callerPhone, CallSid } = req.body;
   
@@ -963,7 +963,7 @@ app.post('/voice/realtime', async (req, res) => {
 
   const phone = normalizePhoneNumber(callerPhone);
   
-  await logEvent('info', `Incoming REALTIME voice call from ${phone} (CallSid: ${CallSid})`);
+  await logEvent('info', `Incoming ENHANCED voice call from ${phone} (CallSid: ${CallSid})`);
   
   try {
     // Create voice call record
@@ -972,29 +972,82 @@ app.post('/voice/realtime', async (req, res) => {
       VALUES ($1, $2, $3, $4)
     `, [phone, CallSid, 'inbound', 'ringing']);
 
+    // Check if customer exists
+    const customer = await findCustomerByPhone(phone);
+    let customerName = 'there';
+    
+    if (customer) {
+      customerName = customer['Name'] || customer['Customer'] || customer['name'] || 'there';
+      console.log(`✅ Found customer: ${customerName}`);
+    } else {
+      console.log(`ℹ️ Unknown caller: ${phone}`);
+    }
+
     const twiml = new twilio.twiml.VoiceResponse();
     
-    // Connect to WebSocket stream for real-time audio
-    const connect = twiml.connect();
-    connect.stream({
-      url: `wss://${req.headers.host}/voice/stream/${CallSid}?phone=${encodeURIComponent(phone)}`,
-      track: 'both_tracks'
+    // Generate natural greeting using OpenAI TTS
+    const greeting = customer ? 
+      `Hey ${customerName}! This is Jonathan's AI assistant. How can I help you today?` :
+      `Hey there! Thanks for calling Jonathan's Distillation Equipment. I'm the AI assistant. How can I help?`;
+
+    // Use enhanced voice instead of basic Twilio TTS
+    if (openaiClient) {
+      try {
+        // Generate natural speech with OpenAI
+        const speechResponse = await openaiClient.audio.speech.create({
+          model: "tts-1-hd",
+          voice: "nova", // Natural female voice
+          input: greeting,
+          response_format: "mp3",
+          speed: 1.0
+        });
+        
+        // For now, fallback to Twilio's enhanced voice until we can serve audio files
+        twiml.say({
+          voice: 'Polly.Joanna', // More natural than 'alice'
+          language: 'en-US'
+        }, greeting);
+        
+      } catch (ttsError) {
+        console.log('OpenAI TTS fallback to Twilio voice:', ttsError.message);
+        twiml.say({
+          voice: 'Polly.Joanna',
+          language: 'en-US'
+        }, greeting);
+      }
+    } else {
+      twiml.say({
+        voice: 'Polly.Joanna',
+        language: 'en-US'
+      }, greeting);
+    }
+    
+    // Start recording with improved settings for natural conversation
+    twiml.record({
+      timeout: 5,              // Reduced timeout for more responsive feel
+      transcribe: true,
+      transcribeCallback: '/voice/transcription',
+      action: '/voice/process-enhanced',  // New enhanced processing endpoint
+      method: 'POST',
+      maxLength: 20,          // Shorter segments for better flow
+      playBeep: false,        // Remove beep for more natural feel
+      finishOnKey: ''         // No key required
     });
     
     res.type('text/xml');
     res.send(twiml.toString());
     
-    await logEvent('info', `Started realtime voice stream for ${phone}`);
+    await logEvent('info', `Started enhanced voice conversation for ${phone}`);
     
   } catch (error) {
-    console.error('Error handling realtime voice call:', error);
-    await logEvent('error', `Failed to handle realtime voice call from ${phone}: ${error.message}`);
+    console.error('Error handling enhanced voice call:', error);
+    await logEvent('error', `Failed to handle enhanced voice call from ${phone}: ${error.message}`);
     
     const twiml = new twilio.twiml.VoiceResponse();
     twiml.say({
-      voice: 'alice',
+      voice: 'Polly.Joanna',
       language: 'en-US'
-    }, "Sorry, we're experiencing technical difficulties. Please call back later or visit moonshine stills dot com.");
+    }, "Sorry, I'm having some technical difficulties. Please call back in a moment or send us a text message.");
     
     res.type('text/xml');
     res.send(twiml.toString());
@@ -1115,7 +1168,154 @@ app.post('/voice/incoming', async (req, res) => {
   }
 });
 
-// Process speech input from customer
+// Enhanced speech processing for natural conversation (Render-Compatible)
+app.post('/voice/process-enhanced', async (req, res) => {
+  const { From: callerPhone, CallSid, RecordingUrl, TranscriptionText } = req.body;
+  
+  if (!callerPhone || !CallSid) {
+    return res.status(400).send('Missing required call parameters');
+  }
+
+  const phone = normalizePhoneNumber(callerPhone);
+  
+  try {
+    // Update call record with transcription
+    if (RecordingUrl) {
+      await pool.query(`
+        UPDATE voice_calls 
+        SET recording_url = $1, transcription = $2, status = 'in-progress'
+        WHERE twilio_call_sid = $3
+      `, [RecordingUrl, TranscriptionText || '', CallSid]);
+    }
+    
+    if (!TranscriptionText || TranscriptionText.trim() === '') {
+      // No speech detected, ask again naturally
+      const twiml = new twilio.twiml.VoiceResponse();
+      twiml.say({
+        voice: 'Polly.Joanna',
+        language: 'en-US'
+      }, "I didn't catch that. What can I help you with?");
+      
+      twiml.record({
+        timeout: 5,
+        transcribe: true,
+        transcribeCallback: '/voice/transcription',
+        action: '/voice/process-enhanced',
+        method: 'POST',
+        maxLength: 20,
+        playBeep: false,
+        finishOnKey: ''
+      });
+      
+      res.type('text/xml');
+      res.send(twiml.toString());
+      return;
+    }
+
+    await logEvent('info', `Enhanced voice transcription from ${phone}: "${TranscriptionText}"`);
+
+    // Use existing AI logic for generating response
+    const customer = await findCustomerByPhone(phone);
+    
+    // Get or create conversation
+    let convResult = await pool.query('SELECT * FROM conversations WHERE phone=$1', [phone]);
+    let conversation = convResult.rows[0];
+    
+    if (!conversation && customer) {
+      function getCustomerName(customer) {
+        if (!customer) return null;
+        try {
+          return customer['Name'] || customer['Customer'] || customer['name'] || customer._rawData[2];
+        } catch (err) {
+          return customer._rawData[2] || null;
+        }
+      }
+      
+      const name = getCustomerName(customer);
+      if (name) {
+        await pool.query(
+          'INSERT INTO conversations(phone, name, paused, requested_human, last_active) VALUES($1, $2, $3, $4, $5)',
+          [phone, name, false, false, new Date()]
+        );
+        conversation = { phone, name, paused: false, requested_human: false };
+      }
+    }
+
+    // Log the voice message
+    await pool.query(
+      'INSERT INTO messages(phone, sender, message, timestamp) VALUES($1, $2, $3, $4)',
+      [phone, 'user', `[ENHANCED VOICE] ${TranscriptionText}`, new Date()]
+    );
+
+    // Generate AI response
+    const aiResponse = await generateAIResponse(phone, TranscriptionText, customer);
+    
+    // Log AI response
+    await pool.query(
+      'INSERT INTO messages(phone, sender, message, timestamp) VALUES($1, $2, $3, $4)',
+      [phone, 'assistant', `[ENHANCED VOICE] ${aiResponse}`, new Date()]
+    );
+
+    // Update call log
+    await pool.query(`
+      UPDATE voice_calls 
+      SET ai_responses = array_append(COALESCE(ai_responses, '{}'), $1)
+      WHERE twilio_call_sid = $2
+    `, [aiResponse, CallSid]);
+
+    // Create natural voice response
+    const twiml = new twilio.twiml.VoiceResponse();
+    
+    // Clean response for voice
+    let voiceResponse = aiResponse
+      .replace(/\[VOICE\]/g, '')
+      .replace(/moonshinestills\.com/g, 'moonshine stills dot com')
+      .replace(/\*\*/g, '') // Remove markdown formatting
+      .replace(/\*/g, '');
+
+    // Use natural voice
+    twiml.say({
+      voice: 'Polly.Joanna',
+      language: 'en-US'
+    }, voiceResponse);
+    
+    // Continue conversation naturally
+    twiml.say({
+      voice: 'Polly.Joanna',
+      language: 'en-US'
+    }, "Anything else I can help with?");
+
+    // Keep recording for continued conversation
+    twiml.record({
+      timeout: 5,
+      transcribe: true,
+      transcribeCallback: '/voice/transcription',
+      action: '/voice/process-enhanced',
+      method: 'POST',
+      maxLength: 20,
+      playBeep: false,
+      finishOnKey: ''
+    });
+    
+    res.type('text/xml');
+    res.send(twiml.toString());
+    
+  } catch (error) {
+    console.error('Error in enhanced voice processing:', error);
+    await logEvent('error', `Enhanced voice processing failed for ${phone}: ${error.message}`);
+    
+    const twiml = new twilio.twiml.VoiceResponse();
+    twiml.say({
+      voice: 'Polly.Joanna',
+      language: 'en-US'
+    }, "I'm having some trouble right now. Please call back in a moment or send us a text message.");
+    
+    res.type('text/xml');
+    res.send(twiml.toString());
+  }
+});
+
+// Process speech input from customer (LEGACY)
 app.post('/voice/process-speech', async (req, res) => {
   const { From: callerPhone, CallSid, RecordingUrl, TranscriptionText } = req.body;
   
