@@ -1265,7 +1265,61 @@ app.post('/voice/process', async (req, res) => {
     // If we have transcription in the request, use it immediately
     if (TranscriptionText && TranscriptionText.trim() && TranscriptionText !== 'undefined') {
       console.log(`✅ USING IMMEDIATE TRANSCRIPTION: "${TranscriptionText}"`);
-      await processTranscriptionAndRespond(phone, TranscriptionText, CallSid, twiml);
+      
+      try {
+        // Simple inline processing instead of complex function
+        const customer = await findCustomerByPhone(phone);
+        
+        // Log user message
+        await pool.query(
+          'INSERT INTO messages(phone, sender, message, timestamp) VALUES($1, $2, $3, $4)',
+          [phone, 'user', `[VOICE] ${TranscriptionText}`, new Date()]
+        );
+        
+        // Generate AI response
+        const aiResponse = await generateAIResponse(phone, TranscriptionText, customer);
+        
+        // Log AI response
+        await pool.query(
+          'INSERT INTO messages(phone, sender, message, timestamp) VALUES($1, $2, $3, $4)',
+          [phone, 'assistant', `[VOICE] ${aiResponse}`, new Date()]
+        );
+        
+        // Clean response for voice
+        let voiceResponse = aiResponse
+          .replace(/\[VOICE\]/g, '')
+          .replace(/moonshinestills\.com/g, 'moonshine stills dot com')
+          .replace(/\*\*/g, '')
+          .replace(/\*/g, '');
+        
+        twiml.say({
+          voice: 'Polly.Joanna',
+          language: 'en-US'
+        }, voiceResponse);
+        
+        // Continue conversation
+        twiml.say({
+          voice: 'Polly.Joanna',
+          language: 'en-US'
+        }, "Anything else I can help with?");
+        
+        twiml.record({
+          timeout: 8,
+          transcribe: true,
+          transcribeCallback: '/voice/transcription',
+          action: '/voice/process',
+          method: 'POST',
+          maxLength: 30,
+          playBeep: false
+        });
+        
+      } catch (aiError) {
+        console.error('AI Response Error:', aiError);
+        twiml.say({
+          voice: 'Polly.Joanna',
+          language: 'en-US'
+        }, "I understand your question but I'm having technical difficulties right now. Please call back in a few minutes or visit moonshine stills dot com.");
+      }
     } else {
       // No immediate transcription - wait for it with a pause
       console.log(`⏳ WAITING FOR TRANSCRIPTION to arrive...`);
