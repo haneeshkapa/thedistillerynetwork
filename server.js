@@ -983,12 +983,25 @@ app.post('/voice/stream-realtime', async (req, res) => {
 
     const twiml = new twilio.twiml.VoiceResponse();
     
-    // Start media streaming immediately for real-time audio
-    // The OpenAI Realtime API will handle the greeting
-    const connect = twiml.connect();
-    connect.stream({
-      url: `wss://${req.headers.host}/voice/stream/${CallSid}?phone=${encodeURIComponent(phone)}&customer=${encodeURIComponent(customerName)}`,
-      track: 'both_tracks'
+    // Use fast traditional voice response instead of streaming
+    const greeting = customer ? 
+      `Hey ${customerName}! I'm Jonathan's AI assistant. What can I help you with?` :
+      `Hey there! I'm Jonathan's AI assistant. What can I help you with?`;
+
+    twiml.say({
+      voice: 'Polly.Joanna',
+      language: 'en-US'
+    }, greeting);
+    
+    // Record with shorter timeout for faster responses
+    twiml.record({
+      timeout: 3,
+      transcribe: true,
+      transcribeCallback: '/voice/transcription',
+      action: '/voice/fast-process',
+      method: 'POST',
+      maxLength: 20,
+      playBeep: false
     });
     
     const twimlString = twiml.toString();
@@ -997,10 +1010,10 @@ app.post('/voice/stream-realtime', async (req, res) => {
     res.type('text/xml');
     res.send(twimlString);
     
-    console.log(`🎤 REAL-TIME STREAM STARTED for ${phone}`);
+    console.log(`🎤 FAST-RESPONSE CALL STARTED for ${phone}`);
     
   } catch (error) {
-    console.error('Error handling streaming voice call:', error);
+    console.error('Error handling fast voice call:', error);
     
     const twiml = new twilio.twiml.VoiceResponse();
     twiml.say({
@@ -1290,6 +1303,109 @@ app.post('/voice/process', async (req, res) => {
       maxLength: 30,
       playBeep: false
     });
+    
+    res.type('text/xml');
+    res.send(twiml.toString());
+  }
+});
+
+// Fast processing for quick voice responses
+app.post('/voice/fast-process', async (req, res) => {
+  const { From: callerPhone, CallSid, RecordingUrl, TranscriptionText } = req.body;
+  
+  const phone = normalizePhoneNumber(callerPhone);
+  
+  console.log(`⚡ FAST PROCESSING from ${phone}: "${TranscriptionText}"`);
+  
+  try {
+    // Update call record
+    if (RecordingUrl) {
+      await pool.query(`
+        UPDATE voice_calls 
+        SET recording_url = $1, transcription = $2, status = 'in-progress'
+        WHERE twilio_call_sid = $3
+      `, [RecordingUrl, TranscriptionText || '', CallSid]);
+    }
+    
+    const twiml = new twilio.twiml.VoiceResponse();
+    
+    if (!TranscriptionText || TranscriptionText.trim() === '') {
+      // No speech detected
+      twiml.say({
+        voice: 'Polly.Joanna',
+        language: 'en-US'
+      }, "I didn't catch that. What can I help you with?");
+      
+      twiml.record({
+        timeout: 3,
+        transcribe: true,
+        transcribeCallback: '/voice/transcription',
+        action: '/voice/fast-process',
+        method: 'POST',
+        maxLength: 20,
+        playBeep: false
+      });
+    } else {
+      // Process the speech and generate AI response
+      console.log(`🤖 GENERATING FAST AI RESPONSE for: "${TranscriptionText}"`);
+      
+      const customer = await findCustomerByPhone(phone);
+      
+      // Log user message
+      await pool.query(
+        'INSERT INTO messages(phone, sender, message, timestamp) VALUES($1, $2, $3, $4)',
+        [phone, 'user', `[FAST VOICE] ${TranscriptionText}`, new Date()]
+      );
+      
+      // Generate AI response
+      const aiResponse = await generateAIResponse(phone, TranscriptionText, customer);
+      
+      // Log AI response
+      await pool.query(
+        'INSERT INTO messages(phone, sender, message, timestamp) VALUES($1, $2, $3, $4)',
+        [phone, 'assistant', `[FAST VOICE] ${aiResponse}`, new Date()]
+      );
+      
+      // Clean response for voice
+      let voiceResponse = aiResponse
+        .replace(/\[VOICE\]/g, '')
+        .replace(/moonshinestills\.com/g, 'moonshine stills dot com')
+        .replace(/\*\*/g, '')
+        .replace(/\*/g, '');
+      
+      twiml.say({
+        voice: 'Polly.Joanna',
+        language: 'en-US'
+      }, voiceResponse);
+      
+      // Continue conversation
+      twiml.say({
+        voice: 'Polly.Joanna',
+        language: 'en-US'
+      }, "Anything else?");
+      
+      twiml.record({
+        timeout: 3,
+        transcribe: true,
+        transcribeCallback: '/voice/transcription',
+        action: '/voice/fast-process',
+        method: 'POST',
+        maxLength: 20,
+        playBeep: false
+      });
+    }
+    
+    res.type('text/xml');
+    res.send(twiml.toString());
+    
+  } catch (error) {
+    console.error(`❌ FAST VOICE ERROR for ${phone}:`, error);
+    
+    const twiml = new twilio.twiml.VoiceResponse();
+    twiml.say({
+      voice: 'Polly.Joanna',
+      language: 'en-US'
+    }, "I'm having trouble right now. Please call back later.");
     
     res.type('text/xml');
     res.send(twiml.toString());
