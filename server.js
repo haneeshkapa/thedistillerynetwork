@@ -995,12 +995,12 @@ app.post('/voice/stream-realtime', async (req, res) => {
     
     // Record with shorter timeout for faster responses
     twiml.record({
-      timeout: 3,
+      timeout: 8,
       transcribe: true,
       transcribeCallback: '/voice/transcription',
-      action: '/voice/process-enhanced',
+      action: '/voice/process',
       method: 'POST',
-      maxLength: 20,
+      maxLength: 30,
       playBeep: false
     });
     
