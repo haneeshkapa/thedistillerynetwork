@@ -2442,7 +2442,7 @@ REAL-TIME VOICE CONVERSATION RULES:
       }));
 
       // Send initial greeting message to start the conversation
-      const greeting = customer ? 
+      const greeting = sessionData.customer ? 
         `Hey ${customerName}! I'm Jonathan's AI assistant. What can I help you with?` :
         `Hey there! I'm Jonathan's AI assistant. What can I help you with?`;
       
