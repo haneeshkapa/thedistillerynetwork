@@ -14,6 +14,7 @@ const path = require('path');
 const redis = require('redis');
 const OpenAI = require('openai');
 const twilio = require('twilio');
+const WebSocket = require('ws');
 
 const AdvancedKnowledgeRetriever = require('./advanced-retriever');
 const PriceValidator = require('./price-validator');
@@ -952,7 +953,55 @@ app.post('/reply', async (req, res) => {
   }
 });
 
-// Voice call webhook endpoint - handles incoming calls
+// OpenAI Realtime voice webhook for incoming calls (NEW)
+app.post('/voice/realtime', async (req, res) => {
+  const { From: callerPhone, CallSid } = req.body;
+  
+  if (!callerPhone || !CallSid) {
+    return res.status(400).send('Missing required call parameters');
+  }
+
+  const phone = normalizePhoneNumber(callerPhone);
+  
+  await logEvent('info', `Incoming REALTIME voice call from ${phone} (CallSid: ${CallSid})`);
+  
+  try {
+    // Create voice call record
+    await pool.query(`
+      INSERT INTO voice_calls (phone, twilio_call_sid, direction, status) 
+      VALUES ($1, $2, $3, $4)
+    `, [phone, CallSid, 'inbound', 'ringing']);
+
+    const twiml = new twilio.twiml.VoiceResponse();
+    
+    // Connect to WebSocket stream for real-time audio
+    const connect = twiml.connect();
+    connect.stream({
+      url: `wss://${req.headers.host}/voice/stream/${CallSid}?phone=${encodeURIComponent(phone)}`,
+      track: 'both_tracks'
+    });
+    
+    res.type('text/xml');
+    res.send(twiml.toString());
+    
+    await logEvent('info', `Started realtime voice stream for ${phone}`);
+    
+  } catch (error) {
+    console.error('Error handling realtime voice call:', error);
+    await logEvent('error', `Failed to handle realtime voice call from ${phone}: ${error.message}`);
+    
+    const twiml = new twilio.twiml.VoiceResponse();
+    twiml.say({
+      voice: 'alice',
+      language: 'en-US'
+    }, "Sorry, we're experiencing technical difficulties. Please call back later or visit moonshine stills dot com.");
+    
+    res.type('text/xml');
+    res.send(twiml.toString());
+  }
+});
+
+// Voice call webhook endpoint - handles incoming calls (LEGACY)
 app.post('/voice/incoming', async (req, res) => {
   const { From: callerPhone, CallSid, CallStatus } = req.body;
   
@@ -1773,10 +1822,273 @@ app.get('/debug/sheets', async (req, res) => {
 
 // Start server after initializing database
 initDatabase().then(() => {
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`✅ SMS bot server listening on port ${PORT}`);
     console.log(`🥃 Jonathan's Distillation Bot server is ready!`);
+    console.log(`🎤 WebSocket server ready for real-time voice`);
   });
+
+  // WebSocket server for real-time voice streaming
+  const wss = new WebSocket.Server({ server });
+  
+  // Store active voice sessions
+  const activeSessions = new Map();
+
+  wss.on('connection', (ws, req) => {
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const callSid = url.pathname.split('/').pop();
+    const phone = url.searchParams.get('phone');
+    
+    console.log(`🔗 WebSocket connected for call ${callSid}, phone: ${phone}`);
+    
+    // Initialize OpenAI Realtime API connection
+    const openaiWs = new WebSocket('wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01', {
+      headers: {
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+        'OpenAI-Beta': 'realtime=v1'
+      }
+    });
+
+    // Store session info
+    const sessionData = {
+      twilioWs: ws,
+      openaiWs: openaiWs,
+      callSid: callSid,
+      phone: phone,
+      customer: null,
+      streamSid: null
+    };
+    
+    activeSessions.set(callSid, sessionData);
+
+    // Configure OpenAI session when connected
+    openaiWs.on('open', async () => {
+      console.log(`✅ OpenAI Realtime connected for call ${callSid}`);
+      
+      // Get customer context
+      let customerContext = '';
+      let customerName = 'there';
+      
+      if (phone) {
+        const customer = await findCustomerByPhone(phone);
+        sessionData.customer = customer;
+        
+        if (customer) {
+          customerName = customer['Name'] || customer['Customer'] || customer['name'] || 'there';
+          customerContext = await buildCustomerContext(customer);
+        }
+      }
+
+      // Get personality and system instructions from database
+      const personalityResult = await pool.query('SELECT content FROM personality ORDER BY created_at DESC LIMIT 1');
+      const personality = personalityResult.rows[0]?.content || 'You are Jonathan\'s AI assistant for distillation equipment.';
+      
+      const systemResult = await pool.query('SELECT content FROM system_instructions ORDER BY created_at DESC LIMIT 1');
+      let systemInstructions = systemResult.rows[0]?.content || 'You are a helpful AI assistant.';
+      
+      // Replace placeholders in system instructions
+      systemInstructions = systemInstructions
+        .replace('{PERSONALITY}', personality)
+        .replace('{CUSTOMER_CONTEXT}', customerContext)
+        .replace('{KNOWLEDGE}', '') // Will be added dynamically
+        .replace('{ORDER_INFO}', '');
+
+      // Configure OpenAI session
+      openaiWs.send(JSON.stringify({
+        type: 'session.update',
+        session: {
+          modalities: ['text', 'audio'],
+          instructions: systemInstructions + `
+
+VOICE CONVERSATION RULES:
+- Keep responses conversational and natural
+- Don't use formal greetings repeatedly - you're in an ongoing conversation  
+- Speak as Jonathan would speak - casual, knowledgeable, friendly
+- Keep responses concise for voice - aim for 1-2 sentences
+- You can be interrupted mid-sentence - that's natural conversation
+- Don't repeat information unless asked`,
+          voice: 'nova', // Natural female voice
+          input_audio_format: 'g711_ulaw',
+          output_audio_format: 'g711_ulaw',
+          input_audio_transcription: {
+            model: 'whisper-1'
+          },
+          turn_detection: {
+            type: 'server_vad',
+            threshold: 0.5,
+            prefix_padding_ms: 300,
+            silence_duration_ms: 500
+          },
+          tools: [],
+          tool_choice: 'auto',
+          temperature: 0.8
+        }
+      }));
+
+      // Send initial greeting
+      openaiWs.send(JSON.stringify({
+        type: 'conversation.item.create',
+        item: {
+          type: 'message',
+          role: 'user',
+          content: [{
+            type: 'input_text',
+            text: `[SYSTEM: Customer ${customerName} has just connected to voice call]`
+          }]
+        }
+      }));
+
+      openaiWs.send(JSON.stringify({
+        type: 'response.create',
+        response: {
+          modalities: ['audio'],
+          instructions: `Greet ${customerName} naturally as Jonathan's AI assistant. Keep it brief and conversational.`
+        }
+      }));
+    });
+
+    // Handle messages from Twilio (caller audio)
+    ws.on('message', (message) => {
+      try {
+        const data = JSON.parse(message);
+        
+        if (data.event === 'start') {
+          sessionData.streamSid = data.start.streamSid;
+          console.log(`🎙️ Audio stream started: ${data.start.streamSid}`);
+        }
+        
+        if (data.event === 'media' && openaiWs.readyState === WebSocket.OPEN) {
+          // Forward caller audio to OpenAI
+          openaiWs.send(JSON.stringify({
+            type: 'input_audio_buffer.append',
+            audio: data.media.payload
+          }));
+        }
+        
+        if (data.event === 'stop') {
+          console.log(`🔚 Audio stream stopped: ${data.stop.streamSid}`);
+          openaiWs.close();
+        }
+      } catch (error) {
+        console.error('Error handling Twilio message:', error);
+      }
+    });
+
+    // Handle messages from OpenAI (AI responses)
+    openaiWs.on('message', async (message) => {
+      try {
+        const response = JSON.parse(message);
+        
+        // Stream AI audio back to caller
+        if (response.type === 'response.audio.delta' && ws.readyState === WebSocket.OPEN && sessionData.streamSid) {
+          ws.send(JSON.stringify({
+            event: 'media',
+            streamSid: sessionData.streamSid,
+            media: {
+              payload: response.delta
+            }
+          }));
+        }
+        
+        // Log conversation for database
+        if (response.type === 'conversation.item.input_audio_transcription.completed') {
+          const transcript = response.transcript;
+          if (transcript && transcript.trim()) {
+            // Log user message
+            pool.query(
+              'INSERT INTO messages(phone, sender, message, timestamp) VALUES($1, $2, $3, $4)',
+              [phone, 'user', `[REALTIME VOICE] ${transcript}`, new Date()]
+            ).catch(err => console.error('Error logging user message:', err));
+          }
+        }
+        
+        if (response.type === 'response.output_item.done' && response.item.type === 'message') {
+          const content = response.item.content.find(c => c.type === 'text');
+          if (content && content.text) {
+            // Log AI response
+            pool.query(
+              'INSERT INTO messages(phone, sender, message, timestamp) VALUES($1, $2, $3, $4)',
+              [phone, 'assistant', `[REALTIME VOICE] ${content.text}`, new Date()]
+            ).catch(err => console.error('Error logging AI message:', err));
+            
+            // Update voice call record
+            pool.query(`
+              UPDATE voice_calls 
+              SET ai_responses = array_append(COALESCE(ai_responses, '{}'), $1)
+              WHERE twilio_call_sid = $2
+            `, [content.text, callSid]).catch(err => console.error('Error updating voice call:', err));
+          }
+        }
+        
+        // Handle errors
+        if (response.type === 'error') {
+          console.error('OpenAI Realtime error:', response.error);
+          await logEvent('error', `OpenAI Realtime error for ${phone}: ${response.error.message}`);
+        }
+        
+      } catch (error) {
+        console.error('Error handling OpenAI message:', error);
+      }
+    });
+
+    // Handle WebSocket closures
+    ws.on('close', () => {
+      console.log(`🔌 Twilio WebSocket closed for call ${callSid}`);
+      if (openaiWs.readyState === WebSocket.OPEN) {
+        openaiWs.close();
+      }
+      activeSessions.delete(callSid);
+    });
+
+    openaiWs.on('close', () => {
+      console.log(`🔌 OpenAI WebSocket closed for call ${callSid}`);
+      activeSessions.delete(callSid);
+    });
+
+    openaiWs.on('error', (error) => {
+      console.error(`❌ OpenAI WebSocket error for call ${callSid}:`, error);
+      logEvent('error', `OpenAI WebSocket error for ${phone}: ${error.message}`);
+    });
+
+    ws.on('error', (error) => {
+      console.error(`❌ Twilio WebSocket error for call ${callSid}:`, error);
+    });
+  });
+
+  // Helper function to build customer context for OpenAI
+  async function buildCustomerContext(customer) {
+    if (!customer || !customer._rawData) return '';
+    
+    try {
+      // Get customer data using the same pattern as existing code
+      function getCustomerData(customer, headerName, fallbackIndex) {
+        try {
+          const value = customer[headerName];
+          if (value) return value;
+        } catch (err) {
+          // Header doesn't exist, fall back to raw data
+        }
+        return customer._rawData[fallbackIndex] || '';
+      }
+      
+      const name = customer['Name'] || customer['Customer'] || customer['name'] || customer._rawData[2];
+      const orderStatus = getCustomerData(customer, 'Status', 4);
+      const orderProduct = getCustomerData(customer, 'Product', 3);
+      const deliveryDate = getCustomerData(customer, 'DeliveryDate', 5);
+      const orderNotes = getCustomerData(customer, 'Notes', 7);
+      
+      let context = `Customer: ${name}`;
+      if (orderProduct) context += `\nProduct: ${orderProduct}`;
+      if (orderStatus) context += `\nOrder Status: ${orderStatus}`;
+      if (deliveryDate) context += `\nDelivery Date: ${deliveryDate}`;
+      if (orderNotes) context += `\nNotes: ${orderNotes}`;
+      
+      return context;
+    } catch (error) {
+      console.error('Error building customer context:', error);
+      return '';
+    }
+  }
 }).catch(err => {
   console.error('❌ Failed to start server:', err);
   process.exit(1);
