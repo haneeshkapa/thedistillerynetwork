@@ -11,6 +11,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 const { GoogleSpreadsheet } = require('google-spreadsheet');
 const { Pool } = require('pg');
 const path = require('path');
+const redis = require('redis');
 
 const AdvancedKnowledgeRetriever = require('./advanced-retriever');
 const PriceValidator = require('./price-validator');
@@ -31,6 +32,11 @@ const {
   SHOPIFY_STORE_DOMAIN,
   SHOPIFY_ACCESS_TOKEN,
   DATABASE_URL,
+  REDIS_URL,
+  REDIS_HOST,
+  REDIS_PORT,
+  REDIS_PASSWORD,
+  REDIS_DB,
   PORT = 3000
 } = process.env;
 
@@ -44,6 +50,44 @@ const pool = new Pool({
   idleTimeoutMillis: 30000,       // Idle connection timeout
   query_timeout: 20000            // Query timeout - increased for slow queries
 });
+
+// Initialize Redis client
+let redisClient = null;
+if (REDIS_URL) {
+  // Use Redis URL (for Render, Railway, etc.)
+  redisClient = redis.createClient({
+    url: REDIS_URL
+  });
+} else if (REDIS_HOST) {
+  // Use individual Redis config
+  redisClient = redis.createClient({
+    socket: {
+      host: REDIS_HOST,
+      port: REDIS_PORT || 6379
+    },
+    password: REDIS_PASSWORD || undefined,
+    database: REDIS_DB || 0
+  });
+}
+
+if (redisClient) {
+  redisClient.on('error', (err) => {
+    console.error('❌ Redis Client Error:', err);
+    redisClient = null; // Fallback to in-memory cache
+  });
+  
+  redisClient.on('connect', () => {
+    console.log('✅ Redis connected successfully');
+  });
+  
+  // Connect to Redis
+  redisClient.connect().catch(err => {
+    console.error('❌ Failed to connect to Redis:', err.message);
+    redisClient = null; // Fallback to in-memory cache
+  });
+} else {
+  console.warn('⚠️ No Redis configuration found, using in-memory cache');
+}
 
 // Initialize Anthropic Claude client
 const anthropicClient = new Anthropic({
@@ -142,6 +186,14 @@ async function initDatabase(retries = 3) {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`);
     
+    // System instructions table (configurable system message wrapper)
+    await pool.query(`CREATE TABLE IF NOT EXISTS system_instructions (
+      id SERIAL PRIMARY KEY,
+      content TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`);
+    
     // Logs table
     await pool.query(`CREATE TABLE IF NOT EXISTS logs (
       id SERIAL PRIMARY KEY,
@@ -179,14 +231,72 @@ Share your expertise on mash bills, fermentation, distillation techniques, cuts,
 You sell equipment specifically designed for alcohol production - embrace it!
 You understand both the equipment AND the craft of making spirits legally
 
-CONTACT INFORMATION:
-Website: moonshinestills.com
-Phone: (603) 997-6786
-Email: tdnorders@gmail.com
-Free shipping to continental USA
+⚠️ CONTACT INFORMATION POLICY ⚠️
+ONLY provide contact information when customers specifically ask for it
+Do NOT randomly include phone, email, or website unless directly requested
+If asked for contact info, respond with:
+- Website: moonshinestills.com
+- Phone: (603) 997-6786 
+- Email: tdnorders@gmail.com
+- Free shipping to continental USA
+
+Common contact requests to watch for:
+- "How do I contact you?" → Provide contact info
+- "What's your phone number?" → Provide phone
+- "How do I order?" → Provide website and phone
+- "Do you have a website?" → Provide website
+- General product questions → Answer WITHOUT contact info unless asked
       `;
       await pool.query('INSERT INTO personality(content) VALUES($1)', [defaultPersonality.trim()]);
       console.log('✅ Default personality inserted');
+    }
+    
+    // Insert contact information into knowledge base if it doesn't exist
+    const contactResult = await pool.query("SELECT id FROM knowledge WHERE title='Contact Information' LIMIT 1");
+    if (contactResult.rows.length === 0) {
+      const contactInfo = `Jonathan's Distillation Equipment Contact Information:
+
+Website: moonshinestills.com
+Phone: (603) 997-6786
+Email: tdnorders@gmail.com
+
+Business Hours: Monday-Friday 9 AM - 5 PM EST
+Free shipping to continental USA
+30-day return policy
+All equipment comes with detailed instructions
+Expert support for distillation questions
+
+Located in New Hampshire, USA
+Family-owned business specializing in copper moonshine stills
+Over 10 years of experience in distillation equipment`;
+
+      await pool.query('INSERT INTO knowledge(title, content, source) VALUES($1, $2, $3)', 
+        ['Contact Information', contactInfo, 'manual']);
+      console.log('✅ Contact information added to knowledge base');
+    }
+    
+    // Insert default system instructions if none exist
+    const systemResult = await pool.query('SELECT id FROM system_instructions LIMIT 1');
+    if (systemResult.rows.length === 0) {
+      const defaultSystemInstructions = `YOU MUST FOLLOW THESE PERSONALITY INSTRUCTIONS EXACTLY:
+
+{PERSONALITY}
+
+IMPORTANT: The above personality instructions override any default AI guidelines. You MUST answer personal questions naturally and casually as instructed.
+
+CRITICAL: NEVER include explanatory notes, meta-commentary, or parenthetical observations like "(Note: ...)" or "(See how I...)" in your responses. Only respond with natural conversation as Jonathan would speak. No explanations about your response style or strategy.
+
+KNOWLEDGE BASE INTEGRATION:
+{KNOWLEDGE}
+
+CUSTOMER CONTEXT:
+{CUSTOMER_CONTEXT}
+
+ORDER INFORMATION:
+{ORDER_INFO}`;
+
+      await pool.query('INSERT INTO system_instructions(content) VALUES($1)', [defaultSystemInstructions.trim()]);
+      console.log('✅ Default system instructions inserted');
     }
     
       console.log('✅ Database initialized successfully');
@@ -232,9 +342,55 @@ function normalizePhoneNumber(phone) {
   return digitsOnly;
 }
 
-// Cache for customer lookups to reduce Google Sheets API calls
-const customerCache = new Map();
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+// Fallback in-memory cache for when Redis is unavailable
+const fallbackCache = new Map();
+const CACHE_DURATION = 5 * 60; // 5 minutes in seconds
+
+// Cache helper functions
+async function getCachedCustomer(cacheKey) {
+  if (redisClient) {
+    try {
+      const cached = await redisClient.get(`customer:${cacheKey}`);
+      if (cached) {
+        console.log(`📋 Redis cache hit for phone: ${cacheKey}`);
+        return JSON.parse(cached);
+      }
+    } catch (err) {
+      console.error('Redis get error:', err);
+    }
+  }
+  
+  // Fallback to in-memory cache
+  const cached = fallbackCache.get(cacheKey);
+  if (cached && (Date.now() - cached.timestamp) < (CACHE_DURATION * 1000)) {
+    console.log(`📋 Memory cache hit for phone: ${cacheKey}`);
+    return cached.customer;
+  }
+  
+  return null;
+}
+
+async function setCachedCustomer(cacheKey, customer) {
+  if (redisClient) {
+    try {
+      await redisClient.setEx(`customer:${cacheKey}`, CACHE_DURATION, JSON.stringify(customer));
+    } catch (err) {
+      console.error('Redis set error:', err);
+    }
+  }
+  
+  // Always set in fallback cache
+  fallbackCache.set(cacheKey, {
+    customer,
+    timestamp: Date.now()
+  });
+  
+  // Clean up fallback cache if it gets too large
+  if (fallbackCache.size > 50) {
+    const oldestKeys = Array.from(fallbackCache.keys()).slice(0, 10);
+    oldestKeys.forEach(key => fallbackCache.delete(key));
+  }
+}
 
 // Helper function to find customer by phone in Google Sheets
 async function findCustomerByPhone(phone) {
@@ -244,10 +400,9 @@ async function findCustomerByPhone(phone) {
   const cacheKey = normalizedPhone;
   
   // Check cache first
-  const cached = customerCache.get(cacheKey);
-  if (cached && (Date.now() - cached.timestamp) < CACHE_DURATION) {
-    console.log(`📋 Cache hit for phone: ${phone}`);
-    return cached.customer;
+  const cached = await getCachedCustomer(cacheKey);
+  if (cached) {
+    return cached;
   }
   
   try {
@@ -264,8 +419,22 @@ async function findCustomerByPhone(phone) {
     const memUsage = process.memoryUsage();
     console.log(`📊 Memory: ${Math.round(memUsage.heapUsed / 1024 / 1024)}MB heap, ${Math.round(memUsage.rss / 1024 / 1024)}MB total`);
     
+    // Helper function to get phone field from row using various header names
+    function getPhoneFromRow(row) {
+      // Try common phone header variations
+      const phoneHeaders = ['Phone', 'phone', 'Phone Number', 'phone_number', 'PhoneNumber', 'PHONE', 'Tel', 'Mobile'];
+      
+      for (const header of phoneHeaders) {
+        const value = row.get(header);
+        if (value) return value;
+      }
+      
+      // Fallback to raw data index 6 (for backward compatibility)
+      return row._rawData[6];
+    }
+    
     rows.forEach((row, index) => {
-      const phoneField = row._rawData[6]; // Assuming phone is in column 6
+      const phoneField = getPhoneFromRow(row);
       if (!phoneField || foundCustomer) return;
       
       const normalizedRowPhone = normalizePhoneNumber(phoneField);
@@ -294,20 +463,8 @@ async function findCustomerByPhone(phone) {
     
     if (foundCustomer) {
       foundCustomer.googleRowIndex = foundRowIndex;
-    }
-    
-    // Cache the result
-    if (foundCustomer) {
-      customerCache.set(cacheKey, {
-        customer: foundCustomer,
-        timestamp: Date.now()
-      });
-      
-      // Clean up old cache entries to prevent memory leaks
-      if (customerCache.size > 100) {
-        const oldestKeys = Array.from(customerCache.keys()).slice(0, 20);
-        oldestKeys.forEach(key => customerCache.delete(key));
-      }
+      // Cache the result
+      await setCachedCustomer(cacheKey, foundCustomer);
     }
     
     return foundCustomer;
@@ -333,17 +490,31 @@ const timeoutMiddleware = (req, res, next) => {
 app.use(timeoutMiddleware);
 
 // Memory monitoring and cleanup
-const monitorMemory = () => {
+const monitorMemory = async () => {
   const memUsage = process.memoryUsage();
   const heapUsedMB = Math.round(memUsage.heapUsed / 1024 / 1024);
   const rssMB = Math.round(memUsage.rss / 1024 / 1024);
   
   console.log(`📊 Memory: ${heapUsedMB}MB heap, ${rssMB}MB total`);
+  console.log(`📊 Fallback cache size: ${fallbackCache.size} entries`);
   
-  // Clear cache if memory usage is high
-  if (heapUsedMB > 350) { // Alert at 350MB heap usage
-    console.log('⚠️ High memory usage detected, clearing cache...');
-    customerCache.clear();
+  // Clear cache if memory usage is high (reduced threshold for free hosting)
+  if (heapUsedMB > 200) { // Reduced from 350MB to 200MB
+    console.log('⚠️ High memory usage detected, clearing fallback cache...');
+    fallbackCache.clear();
+    
+    // Clear Redis cache if available
+    if (redisClient) {
+      try {
+        const keys = await redisClient.keys('customer:*');
+        if (keys.length > 0) {
+          await redisClient.del(keys);
+          console.log(`🗑️ Cleared ${keys.length} Redis cache entries`);
+        }
+      } catch (err) {
+        console.error('Error clearing Redis cache:', err);
+      }
+    }
     
     // Force garbage collection if available
     if (global.gc) {
@@ -382,14 +553,26 @@ app.post('/reply', async (req, res) => {
     if (!conversation) {
       // New conversation: check if customer exists in Google Sheets
       const customer = await findCustomerByPhone(phone);
-      if (!customer || !customer._rawData || !customer._rawData[2]) {
+      
+      // Helper function to get customer name
+      function getCustomerName(customer) {
+        if (!customer) return null;
+        try {
+          return customer.get('Name') || customer.get('Customer') || customer.get('name') || customer._rawData[2];
+        } catch (err) {
+          return customer._rawData[2] || null;
+        }
+      }
+      
+      const customerName = getCustomerName(customer);
+      if (!customer || !customerName) {
         // Customer not found in Google Sheets - return no content so Tasker ignores
         await logEvent('info', `Non-customer SMS from ${phone} - no auto-reply`);
         return res.status(204).send(); // No Content = Tasker won't send SMS
       }
       
       // Customer found - proceed with conversation
-      const name = customer._rawData[2];
+      const name = customerName;
       await logEvent('info', `Customer identified: ${name} (phone ${phone})`);
       
       await pool.query(
@@ -401,7 +584,19 @@ app.post('/reply', async (req, res) => {
       // Existing conversation: verify customer still exists in Google Sheets
       if (!conversation.name) {
         const customer = await findCustomerByPhone(phone);
-        if (!customer || !customer._rawData || !customer._rawData[2]) {
+        
+        // Helper function to get customer name
+        function getCustomerName(customer) {
+          if (!customer) return null;
+          try {
+            return customer.get('Name') || customer.get('Customer') || customer.get('name') || customer._rawData[2];
+          } catch (err) {
+            return customer._rawData[2] || null;
+          }
+        }
+        
+        const customerName = getCustomerName(customer);
+        if (!customer || !customerName) {
           // Customer no longer in Google Sheets - return no content so Tasker ignores  
           await logEvent('info', `Non-customer SMS from removed customer ${phone} - no auto-reply`);
           return res.status(204).send(); // No Content = Tasker won't send SMS
@@ -447,7 +642,18 @@ app.post('/reply', async (req, res) => {
     // Always check if this is a known customer first - only respond to customers in Google Sheets
     const customer = await findCustomerByPhone(phone);
     
-    if (!customer || !customer._rawData) {
+    // Helper function to get customer name for validation
+    function getCustomerName(customer) {
+      if (!customer) return null;
+      try {
+        return customer.get('Name') || customer.get('Customer') || customer.get('name') || customer._rawData[2];
+      } catch (err) {
+        return customer._rawData[2] || null;
+      }
+    }
+    
+    const customerName = getCustomerName(customer);
+    if (!customer || !customerName) {
       // Not a customer in Google Sheets - don't respond to anyone not in sheets
       await logEvent('info', `Non-customer SMS from ${phone} - no auto-reply`);
       return res.status(204).send(); // No Content = Tasker won't send SMS
@@ -458,25 +664,35 @@ app.post('/reply', async (req, res) => {
     const orderPattern = /order|ordered|purchase|purchased|bought|status|tracking|shipped|delivery|when will|eta|where.*my|my.*order/i;
     let orderInfo = "";
     if (orderPattern.test(userMessage) && customer && customer._rawData) {
-        // Extract order information from Shopify Google Sheets row
-        const rowData = customer._rawData;
-        const customerEmail = rowData[0] || '';
-        const productOrdered = rowData[1] || '';
-        const customerName = rowData[2] || '';
-        const orderDate = rowData[3] || '';
-        const totalPrice = rowData[4] || '';
-        const email = rowData[5] || '';
-        const phone = rowData[6] || '';
-        const shippingAddress = rowData[7] || '';
-        const shippingCity = rowData[8] || '';
+        // Helper function to get customer data using headers or fallback to raw index
+        function getCustomerData(customer, headerName, fallbackIndex) {
+          try {
+            const value = customer.get(headerName);
+            if (value) return value;
+          } catch (err) {
+            // Header doesn't exist, fall back to raw data
+          }
+          return customer._rawData[fallbackIndex] || '';
+        }
+        
+        // Extract order information from Shopify Google Sheets row using header-based lookup
+        const customerEmail = getCustomerData(customer, 'Email', 0);
+        const productOrdered = getCustomerData(customer, 'Product', 1) || getCustomerData(customer, 'LineItem name', 1);
+        const customerName = getCustomerData(customer, 'Name', 2) || getCustomerData(customer, 'Customer', 2);
+        const orderDate = getCustomerData(customer, 'Created at', 3) || getCustomerData(customer, 'Order Date', 3);
+        const totalPrice = getCustomerData(customer, 'Total', 4) || getCustomerData(customer, 'Price', 4);
+        const email = getCustomerData(customer, 'Email', 5);
+        const phone = getCustomerData(customer, 'Phone', 6) || getCustomerData(customer, 'phone', 6);
+        const shippingAddress = getCustomerData(customer, 'Shipping Address1', 7) || getCustomerData(customer, 'Address', 7);
+        const shippingCity = getCustomerData(customer, 'Shipping City', 8) || getCustomerData(customer, 'City', 8);
+        const shippingZip = getCustomerData(customer, 'Shipping Zip', 9) || getCustomerData(customer, 'Zip', 9);
         
         console.log(`📋 Order Info Extract for ${phone}:`);
         console.log(`  Customer: ${customerName}`);
         console.log(`  Product: ${productOrdered}`);
         console.log(`  Order Date: ${orderDate}`);
         console.log(`  Total: ${totalPrice}`);
-        console.log(`  Raw Data Sample:`, rowData.slice(0, 10));
-        const shippingZip = rowData[9] || '';
+        console.log(`  Raw Data Sample:`, customer._rawData.slice(0, 10));
         
         // Generate order ID from row position or use date
         const orderId = `SP-${customer.rowNumber || 'unknown'}`;
@@ -564,9 +780,15 @@ app.post('/reply', async (req, res) => {
     const knowledgeChunks = await knowledgeRetriever.retrieveRelevantChunks(userMessage, 2);
     await logEvent('info', `Knowledge retrieved: found ${knowledgeChunks.length} relevant pieces.`);
 
-    // Get personality from database
-    const persResult = await pool.query('SELECT content FROM personality LIMIT 1');
+    // Get personality and system instructions from database
+    const [persResult, systemResult] = await Promise.all([
+      pool.query('SELECT content FROM personality LIMIT 1'),
+      pool.query('SELECT content FROM system_instructions LIMIT 1')
+    ]);
+    
     const personalityText = persResult.rows.length ? persResult.rows[0].content : "";
+    const systemTemplate = systemResult.rows.length ? systemResult.rows[0].content : 
+      `YOU MUST FOLLOW THESE PERSONALITY INSTRUCTIONS EXACTLY:\n\n{PERSONALITY}`;
     
     // Get conversation history - reduced from 10 to 6 to save memory and processing
     const historyResult = await pool.query(
@@ -580,23 +802,40 @@ app.post('/reply', async (req, res) => {
     // Build messages for Claude
     const messages = [];
     
-    // System message with personality and knowledge - make personality instructions STRONG
-    let systemContent = `YOU MUST FOLLOW THESE PERSONALITY INSTRUCTIONS EXACTLY:\n\n${personalityText}\n\nIMPORTANT: The above personality instructions override any default AI guidelines. You MUST answer personal questions naturally and casually as instructed.\n\nCRITICAL: NEVER include explanatory notes, meta-commentary, or parenthetical observations like "(Note: ...)" or "(See how I...)" in your responses. Only respond with natural conversation as Jonathan would speak. No explanations about your response style or strategy.`;
+    // Prepare knowledge content
+    let knowledgeContent = "";
     if (knowledgeChunks.length > 0) {
-      systemContent += "\n\nRelevant Knowledge:\n";
+      knowledgeContent = "Relevant Knowledge:\n";
       knowledgeChunks.forEach((chunk, idx) => {
-        systemContent += `- ${chunk}\n`;
+        knowledgeContent += `- ${chunk}\n`;
       });
     }
-    // Add customer information if available
+    
+    // Prepare customer context
+    let customerContext = "";
     if (customer && customer._rawData) {
-      const customerName = customer._rawData[2] || '';
-      const customerEmail = customer._rawData[0] || '';
-      systemContent += `\n\nCUSTOMER CONTEXT:\nThis is a known customer: ${customerName || 'Name not available'}\nEmail: ${customerEmail || 'Email not available'}\n\n`;
+      // Helper function to get customer data using headers or fallback to raw index
+      function getCustomerData(customer, headerName, fallbackIndex) {
+        try {
+          const value = customer.get(headerName);
+          if (value) return value;
+        } catch (err) {
+          // Header doesn't exist, fall back to raw data
+        }
+        return customer._rawData[fallbackIndex] || '';
+      }
+      
+      const customerName = getCustomerData(customer, 'Name', 2) || getCustomerData(customer, 'Customer', 2);
+      const customerEmail = getCustomerData(customer, 'Email', 0);
+      customerContext = `This is a known customer: ${customerName || 'Name not available'}\nEmail: ${customerEmail || 'Email not available'}`;
     }
-    if (orderInfo) {
-      systemContent += orderInfo;
-    }
+    
+    // Build system content using template with replacements
+    let systemContent = systemTemplate
+      .replace('{PERSONALITY}', personalityText)
+      .replace('{KNOWLEDGE}', knowledgeContent)
+      .replace('{CUSTOMER_CONTEXT}', customerContext)
+      .replace('{ORDER_INFO}', orderInfo || '');
 
     // Add conversation history (excluding current message)
     const conversationHistory = historyMessages.slice(0, -1);
@@ -640,8 +879,8 @@ app.post('/reply', async (req, res) => {
       await logEvent('error', `Claude API returned empty response for ${phone}.`);
     }
 
-    // Validate AI response for price mistakes
-    const validPrice = priceValidator.validate(aiResponse, userMessage);
+    // Validate AI response for price mistakes with Shopify awareness
+    const validPrice = await priceValidator.validate(aiResponse, userMessage, knowledgeChunks);
     if (!validPrice) {
       aiResponse = "I'm having trouble accessing pricing right now. Please call (603) 997-6786 for current prices, or visit moonshinestills.com.";
       await logEvent('info', `PriceValidator flagged response for ${phone}. Replaced with price fallback.`);
@@ -694,7 +933,19 @@ app.post('/human', async (req, res) => {
     if (!conversation) {
       // New conversation: check if customer exists in Google Sheets
       const customer = await findCustomerByPhone(phone);
-      if (!customer || !customer._rawData || !customer._rawData[2]) {
+      
+      // Helper function to get customer name
+      function getCustomerName(customer) {
+        if (!customer) return null;
+        try {
+          return customer.get('Name') || customer.get('Customer') || customer.get('name') || customer._rawData[2];
+        } catch (err) {
+          return customer._rawData[2] || null;
+        }
+      }
+      
+      const customerName = getCustomerName(customer);
+      if (!customer || !customerName) {
         // Customer not found in Google Sheets - ignore message
         await logEvent('info', `Ignoring human message from non-customer: ${phone}`);
         return res.status(200).json({ 
@@ -704,7 +955,7 @@ app.post('/human', async (req, res) => {
       }
       
       // Customer found - proceed with logging
-      const name = customer._rawData[2];
+      const name = customerName;
       await logEvent('info', `Customer identified for human conversation: ${name} (phone ${phone})`);
       
       await pool.query(
@@ -837,6 +1088,42 @@ app.post('/api/personality', async (req, res) => {
   } catch (err) {
     console.error("Error updating personality:", err);
     res.status(500).json({ error: "Failed to update personality" });
+  }
+});
+
+// Get system instructions
+app.get('/api/system-instructions', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT content FROM system_instructions LIMIT 1');
+    const content = result.rows.length ? result.rows[0].content : "";
+    res.json({ content });
+  } catch (err) {
+    console.error("Error fetching system instructions:", err);
+    res.status(500).json({ error: "Failed to fetch system instructions" });
+  }
+});
+
+// Update system instructions
+app.post('/api/system-instructions', async (req, res) => {
+  const newContent = req.body.content;
+  try {
+    if (typeof newContent !== 'string') {
+      return res.status(400).json({ error: "Invalid content" });
+    }
+    
+    const result = await pool.query('SELECT id FROM system_instructions LIMIT 1');
+    if (result.rows.length) {
+      await pool.query('UPDATE system_instructions SET content=$1, updated_at=CURRENT_TIMESTAMP WHERE id=$2', 
+        [newContent, result.rows[0].id]);
+    } else {
+      await pool.query('INSERT INTO system_instructions(content) VALUES($1)', [newContent]);
+    }
+    
+    await logEvent('info', `System instructions updated by admin.`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Error updating system instructions:", err);
+    res.status(500).json({ error: "Failed to update system instructions" });
   }
 });
 

@@ -96,10 +96,26 @@
     <!-- Personality Section -->
     <div class="section">
       <h2>🤖 Bot Personality</h2>
-      <p>Edit the personality/system prompt for the AI:</p>
+      <p>Edit the personality content for the AI (main character traits and knowledge):</p>
       <textarea id="personality-text" placeholder="Loading personality..."></textarea><br>
       <button id="save-personality-btn" class="btn-primary">Save Personality</button>
       <div id="personality-status" class="status-message hidden"></div>
+    </div>
+
+    <!-- System Instructions Section -->
+    <div class="section">
+      <h2>⚙️ System Instructions</h2>
+      <p>Edit the system message template (controls how personality, knowledge, and context are integrated):</p>
+      <div style="background: #f8f9fa; padding: 10px; border-radius: 4px; margin-bottom: 10px; font-family: monospace; font-size: 0.9em;">
+        <strong>Template Variables:</strong><br>
+        <code>{PERSONALITY}</code> - Replaced with personality content<br>
+        <code>{KNOWLEDGE}</code> - Replaced with relevant knowledge chunks<br>
+        <code>{CUSTOMER_CONTEXT}</code> - Replaced with customer information<br>
+        <code>{ORDER_INFO}</code> - Replaced with order status information
+      </div>
+      <textarea id="system-instructions-text" placeholder="Loading system instructions..." rows="15"></textarea><br>
+      <button id="save-system-instructions-btn" class="btn-primary">Save System Instructions</button>
+      <div id="system-instructions-status" class="status-message hidden"></div>
     </div>
 
     <!-- Knowledge Base Section -->
@@ -303,6 +319,17 @@ async function loadPersonality() {
   }
 }
 
+// Load system instructions text
+async function loadSystemInstructions() {
+  try {
+    const res = await fetch('/api/system-instructions');
+    const data = await res.json();
+    document.getElementById('system-instructions-text').value = data.content || '';
+  } catch (error) {
+    console.error('Failed to load system instructions:', error);
+  }
+}
+
 // Save personality text
 document.getElementById('save-personality-btn').onclick = async () => {
   const text = document.getElementById('personality-text').value;
@@ -321,6 +348,27 @@ document.getElementById('save-personality-btn').onclick = async () => {
   } catch (error) {
     console.error('Failed to save personality:', error);
     showStatus('personality-status', 'Failed to save personality.', true);
+  }
+};
+
+// Save system instructions text
+document.getElementById('save-system-instructions-btn').onclick = async () => {
+  const text = document.getElementById('system-instructions-text').value;
+  try {
+    const res = await fetch('/api/system-instructions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: text })
+    });
+    
+    if (res.ok) {
+      showStatus('system-instructions-status', 'System instructions saved successfully!');
+    } else {
+      showStatus('system-instructions-status', 'Failed to save system instructions.', true);
+    }
+  } catch (error) {
+    console.error('Failed to save system instructions:', error);
+    showStatus('system-instructions-status', 'Failed to save system instructions.', true);
   }
 };
 
@@ -483,6 +531,7 @@ async function initDashboard() {
     loadStats(),
     loadConversations(),
     loadPersonality(),
+    loadSystemInstructions(),
     loadKnowledge(),
     loadLogs()
   ]);
