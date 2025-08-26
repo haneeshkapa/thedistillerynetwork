@@ -991,8 +991,11 @@ app.post('/voice/stream-realtime', async (req, res) => {
       track: 'both_tracks'
     });
     
+    const twimlString = twiml.toString();
+    console.log(`📋 TwiML being sent to Twilio:`, twimlString);
+    
     res.type('text/xml');
-    res.send(twiml.toString());
+    res.send(twimlString);
     
     console.log(`🎤 REAL-TIME STREAM STARTED for ${phone}`);
     
@@ -2263,6 +2266,29 @@ app.get('/', (req, res) => {
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', message: 'Jonathan\'s Distillation SMS Bot is running' });
+});
+
+// WebSocket health check endpoint
+app.get('/ws-test', (req, res) => {
+  res.send(`
+    <html>
+    <head><title>WebSocket Test</title></head>
+    <body>
+      <h1>WebSocket Connection Test</h1>
+      <div id="status">Connecting...</div>
+      <script>
+        const ws = new WebSocket('wss://' + window.location.host + '/voice/stream/test?phone=1234567890&customer=Test');
+        const statusDiv = document.getElementById('status');
+        
+        ws.onopen = () => statusDiv.innerHTML = '✅ WebSocket Connected Successfully!';
+        ws.onerror = (err) => statusDiv.innerHTML = '❌ WebSocket Error: ' + err;
+        ws.onclose = () => statusDiv.innerHTML = '🔌 WebSocket Connection Closed';
+        
+        setTimeout(() => ws.close(), 2000);
+      </script>
+    </body>
+    </html>
+  `);
 });
 
 // Debug endpoint to check Google Sheets connection
