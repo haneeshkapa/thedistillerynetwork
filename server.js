@@ -2335,8 +2335,19 @@ initDatabase().then(() => {
   const activeSessions = new Map();
   
   console.log(`🔌 WebSocket server created and ready on port ${PORT}`);
+  
+  // Log WebSocket server errors
+  wss.on('error', (error) => {
+    console.error('❌ WebSocket Server Error:', error);
+  });
 
   wss.on('connection', (ws, req) => {
+    console.log(`🔌 RAW WebSocket connection attempt:`, {
+      url: req.url,
+      headers: req.headers,
+      origin: req.headers.origin
+    });
+    
     const url = new URL(req.url, `http://${req.headers.host}`);
     const callSid = url.pathname.split('/').pop();
     const phone = url.searchParams.get('phone');
