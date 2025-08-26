@@ -963,7 +963,7 @@ app.post('/voice/stream-realtime', async (req, res) => {
 
   const phone = normalizePhoneNumber(callerPhone);
   
-  console.log(`🔥 REAL-TIME STREAMING CALL from ${phone} (CallSid: ${CallSid})`);
+  console.log(`🔥 FIXED VOICE CALL from ${phone} (CallSid: ${CallSid})`);
   
   try {
     // Create voice call record
@@ -978,7 +978,7 @@ app.post('/voice/stream-realtime', async (req, res) => {
     
     if (customer) {
       customerName = customer['Name'] || customer['Customer'] || customer['name'] || customer._rawData[2] || 'there';
-      console.log(`✅ STREAMING CUSTOMER: ${customerName}`);
+      console.log(`✅ FIXED VOICE CUSTOMER: ${customerName}`);
     }
 
     const twiml = new twilio.twiml.VoiceResponse();
@@ -998,7 +998,7 @@ app.post('/voice/stream-realtime', async (req, res) => {
       timeout: 3,
       transcribe: true,
       transcribeCallback: '/voice/transcription',
-      action: '/voice/fast-process',
+      action: '/voice/process-enhanced',
       method: 'POST',
       maxLength: 20,
       playBeep: false
