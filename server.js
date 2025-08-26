@@ -953,6 +953,72 @@ app.post('/reply', async (req, res) => {
   }
 });
 
+// Real-time streaming voice with OpenAI Realtime API
+app.post('/voice/stream-realtime', async (req, res) => {
+  const { From: callerPhone, CallSid } = req.body;
+  
+  if (!callerPhone || !CallSid) {
+    return res.status(400).send('Missing required call parameters');
+  }
+
+  const phone = normalizePhoneNumber(callerPhone);
+  
+  console.log(`🔥 REAL-TIME STREAMING CALL from ${phone} (CallSid: ${CallSid})`);
+  
+  try {
+    // Create voice call record
+    await pool.query(`
+      INSERT INTO voice_calls (phone, twilio_call_sid, direction, status) 
+      VALUES ($1, $2, $3, $4)
+    `, [phone, CallSid, 'inbound', 'streaming']);
+
+    // Check customer for context
+    const customer = await findCustomerByPhone(phone);
+    let customerName = 'there';
+    
+    if (customer) {
+      customerName = customer['Name'] || customer['Customer'] || customer['name'] || customer._rawData[2] || 'there';
+      console.log(`✅ STREAMING CUSTOMER: ${customerName}`);
+    }
+
+    const twiml = new twilio.twiml.VoiceResponse();
+    
+    // Brief personalized greeting then start streaming
+    const greeting = customer ? 
+      `Hey ${customerName}! I'm Jonathan's AI assistant.` :
+      `Hey! I'm Jonathan's AI assistant.`;
+
+    twiml.say({
+      voice: 'Polly.Joanna',
+      language: 'en-US'
+    }, greeting);
+    
+    // Start media streaming for real-time audio
+    const connect = twiml.connect();
+    connect.stream({
+      url: `wss://${req.headers.host}/voice/stream/${CallSid}?phone=${encodeURIComponent(phone)}&customer=${encodeURIComponent(customerName)}`,
+      track: 'both_tracks'
+    });
+    
+    res.type('text/xml');
+    res.send(twiml.toString());
+    
+    console.log(`🎤 REAL-TIME STREAM STARTED for ${phone}`);
+    
+  } catch (error) {
+    console.error('Error handling streaming voice call:', error);
+    
+    const twiml = new twilio.twiml.VoiceResponse();
+    twiml.say({
+      voice: 'Polly.Joanna',
+      language: 'en-US'
+    }, "I'm having technical difficulties. Please call back or send us a text message.");
+    
+    res.type('text/xml');
+    res.send(twiml.toString());
+  }
+});
+
 // Enhanced Natural Voice (Render-Compatible) - Uses OpenAI TTS for natural voice
 app.post('/voice/realtime', async (req, res) => {
   const { From: callerPhone, CallSid } = req.body;
@@ -2255,8 +2321,9 @@ initDatabase().then(() => {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const callSid = url.pathname.split('/').pop();
     const phone = url.searchParams.get('phone');
+    const customerName = url.searchParams.get('customer') || 'there';
     
-    console.log(`🔗 WebSocket connected for call ${callSid}, phone: ${phone}`);
+    console.log(`🔥 REAL-TIME WebSocket connected: CallSid=${callSid}, Phone=${phone}, Customer=${customerName}`);
     
     // Initialize OpenAI Realtime API connection
     const openaiWs = new WebSocket('wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01', {
@@ -2280,19 +2347,18 @@ initDatabase().then(() => {
 
     // Configure OpenAI session when connected
     openaiWs.on('open', async () => {
-      console.log(`✅ OpenAI Realtime connected for call ${callSid}`);
+      console.log(`🔥 OpenAI Realtime STREAMING connected for call ${callSid}`);
       
       // Get customer context
       let customerContext = '';
-      let customerName = 'there';
       
       if (phone) {
         const customer = await findCustomerByPhone(phone);
         sessionData.customer = customer;
         
         if (customer) {
-          customerName = customer['Name'] || customer['Customer'] || customer['name'] || 'there';
           customerContext = await buildCustomerContext(customer);
+          console.log(`📊 Customer context loaded for ${customerName}`);
         }
       }
 
@@ -2310,58 +2376,43 @@ initDatabase().then(() => {
         .replace('{KNOWLEDGE}', '') // Will be added dynamically
         .replace('{ORDER_INFO}', '');
 
-      // Configure OpenAI session
+      // Configure OpenAI session for real-time streaming with low latency
       openaiWs.send(JSON.stringify({
         type: 'session.update',
         session: {
           modalities: ['text', 'audio'],
           instructions: systemInstructions + `
 
-VOICE CONVERSATION RULES:
-- Keep responses conversational and natural
-- Don't use formal greetings repeatedly - you're in an ongoing conversation  
-- Speak as Jonathan would speak - casual, knowledgeable, friendly
-- Keep responses concise for voice - aim for 1-2 sentences
-- You can be interrupted mid-sentence - that's natural conversation
-- Don't repeat information unless asked`,
-          voice: 'nova', // Natural female voice
-          input_audio_format: 'g711_ulaw',
-          output_audio_format: 'g711_ulaw',
+REAL-TIME VOICE CONVERSATION RULES:
+- This is a REAL-TIME voice conversation like ChatGPT Voice
+- Respond immediately and naturally - no delays
+- Keep responses concise (1-2 sentences max for real-time)
+- You can be interrupted mid-sentence - that's natural
+- Speak as Jonathan would - casual, knowledgeable, friendly
+- Customer name is ${customerName}
+- NO formal greetings after the initial one
+- Build on the conversation naturally`,
+          voice: 'nova', // Natural female voice - best for real-time
+          input_audio_format: 'g711_ulaw', // Twilio's format
+          output_audio_format: 'g711_ulaw', // Twilio's format
           input_audio_transcription: {
             model: 'whisper-1'
           },
           turn_detection: {
             type: 'server_vad',
-            threshold: 0.5,
-            prefix_padding_ms: 300,
-            silence_duration_ms: 500
+            threshold: 0.3, // Lower threshold for faster detection
+            prefix_padding_ms: 200, // Reduced padding for speed
+            silence_duration_ms: 300 // Shorter silence for real-time feel
           },
           tools: [],
           tool_choice: 'auto',
-          temperature: 0.8
+          temperature: 0.9, // Slightly higher for more natural speech
+          max_response_output_tokens: 150 // Limit for real-time
         }
       }));
 
-      // Send initial greeting
-      openaiWs.send(JSON.stringify({
-        type: 'conversation.item.create',
-        item: {
-          type: 'message',
-          role: 'user',
-          content: [{
-            type: 'input_text',
-            text: `[SYSTEM: Customer ${customerName} has just connected to voice call]`
-          }]
-        }
-      }));
-
-      openaiWs.send(JSON.stringify({
-        type: 'response.create',
-        response: {
-          modalities: ['audio'],
-          instructions: `Greet ${customerName} naturally as Jonathan's AI assistant. Keep it brief and conversational.`
-        }
-      }));
+      // Start the conversation without explicit greeting (already done via TwiML)
+      console.log(`🎤 Real-time conversation ready for ${customerName}`);
     });
 
     // Handle messages from Twilio (caller audio)
