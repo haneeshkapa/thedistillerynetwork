@@ -468,7 +468,7 @@ async function findCustomerByPhone(phone) {
       const phoneHeaders = ['Phone', 'phone', 'Phone Number', 'phone_number', 'PhoneNumber', 'PHONE', 'Tel', 'Mobile'];
       
       for (const header of phoneHeaders) {
-        const value = row.get(header);
+        const value = row[header];
         if (value) return value;
       }
       
@@ -601,7 +601,7 @@ app.post('/reply', async (req, res) => {
       function getCustomerName(customer) {
         if (!customer) return null;
         try {
-          return customer.get('Name') || customer.get('Customer') || customer.get('name') || customer._rawData[2];
+          return customer['Name'] || customer['Customer'] || customer['name'] || customer._rawData[2];
         } catch (err) {
           return customer._rawData[2] || null;
         }
@@ -632,7 +632,7 @@ app.post('/reply', async (req, res) => {
         function getCustomerName(customer) {
           if (!customer) return null;
           try {
-            return customer.get('Name') || customer.get('Customer') || customer.get('name') || customer._rawData[2];
+            return customer['Name'] || customer['Customer'] || customer['name'] || customer._rawData[2];
           } catch (err) {
             return customer._rawData[2] || null;
           }
@@ -689,7 +689,7 @@ app.post('/reply', async (req, res) => {
     function getCustomerName(customer) {
       if (!customer) return null;
       try {
-        return customer.get('Name') || customer.get('Customer') || customer.get('name') || customer._rawData[2];
+        return customer['Name'] || customer['Customer'] || customer['name'] || customer._rawData[2];
       } catch (err) {
         return customer._rawData[2] || null;
       }
@@ -710,7 +710,7 @@ app.post('/reply', async (req, res) => {
         // Helper function to get customer data using headers or fallback to raw index
         function getCustomerData(customer, headerName, fallbackIndex) {
           try {
-            const value = customer.get(headerName);
+            const value = customer[headerName];
             if (value) return value;
           } catch (err) {
             // Header doesn't exist, fall back to raw data
@@ -860,7 +860,7 @@ app.post('/reply', async (req, res) => {
       // Helper function to get customer data using headers or fallback to raw index
       function getCustomerData(customer, headerName, fallbackIndex) {
         try {
-          const value = customer.get(headerName);
+          const value = customer[headerName];
           if (value) return value;
         } catch (err) {
           // Header doesn't exist, fall back to raw data
@@ -974,7 +974,7 @@ app.post('/voice/incoming', async (req, res) => {
       // Try multiple approaches to get the name
       try {
         // Try header-based access
-        const headerName = customer.get('Name') || customer.get('Customer') || customer.get('name');
+        const headerName = customer['Name'] || customer['Customer'] || customer['name'];
         if (headerName) return headerName;
       } catch (err) {
         // Header access failed, continue to raw data
@@ -1122,7 +1122,7 @@ app.post('/voice/process-speech', async (req, res) => {
       function getCustomerName(customer) {
         if (!customer) return null;
         try {
-          return customer.get('Name') || customer.get('Customer') || customer.get('name') || customer._rawData[2];
+          return customer['Name'] || customer['Customer'] || customer['name'] || customer._rawData[2];
         } catch (err) {
           return customer._rawData[2] || null;
         }
@@ -1284,7 +1284,7 @@ async function generateAIResponse(phone, userMessage, customer = null) {
     if (customer && customer._rawData) {
       function getCustomerData(customer, headerName, fallbackIndex) {
         try {
-          const value = customer.get(headerName);
+          const value = customer[headerName];
           if (value) return value;
         } catch (err) {
           return customer._rawData[fallbackIndex] || '';
@@ -1371,7 +1371,7 @@ app.post('/human', async (req, res) => {
       function getCustomerName(customer) {
         if (!customer) return null;
         try {
-          return customer.get('Name') || customer.get('Customer') || customer.get('name') || customer._rawData[2];
+          return customer['Name'] || customer['Customer'] || customer['name'] || customer._rawData[2];
         } catch (err) {
           return customer._rawData[2] || null;
         }
