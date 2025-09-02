@@ -18,6 +18,7 @@ const WebSocket = require('ws');
 
 const AdvancedKnowledgeRetriever = require('./advanced-retriever');
 const PriceValidator = require('./price-validator');
+const enhancedShopifySync = require('./enhanced-shopify-sync');
 
 require('dotenv').config();
 
@@ -2312,92 +2313,35 @@ app.delete('/api/knowledge/:id', async (req, res) => {
   }
 });
 
-// Sync knowledge base with Shopify products
+// Sync knowledge base with Shopify products, metafields, policies, and website content
 app.post('/api/sync-shopify', async (req, res) => {
   if (!SHOPIFY_STORE_DOMAIN || !SHOPIFY_ACCESS_TOKEN) {
     return res.status(500).json({ error: "Shopify integration not configured" });
   }
   
   try {
-    const fetch = (await import('node-fetch')).default;
-    const url = `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2023-10/products.json?limit=250`;
+    console.log('🔄 Starting enhanced Shopify sync...');
+    const syncResults = await enhancedShopifySync(pool, SHOPIFY_STORE_DOMAIN, SHOPIFY_ACCESS_TOKEN);
     
-    const response = await fetch(url, {
-      headers: { 
-        "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN,
-        "Content-Type": "application/json"
-      }
+    const totalSynced = syncResults.products + syncResults.metafields + syncResults.policies + syncResults.pages;
+    const message = `Enhanced Shopify sync complete: ${syncResults.products} products, ${syncResults.metafields} metafields, ${syncResults.policies} policies, ${syncResults.pages} pages synced.`;
+    
+    await logEvent('info', message);
+    
+    if (syncResults.errors.length > 0) {
+      await logEvent('warning', `Sync completed with errors: ${syncResults.errors.join('; ')}`);
+    }
+    
+    res.json({ 
+      success: true, 
+      totalSynced,
+      details: syncResults
     });
     
-    if (!response.ok) {
-      throw new Error(`Shopify API returned status ${response.status}`);
-    }
-    
-    const data = await response.json();
-    const products = data.products || [];
-    
-    // Remove old Shopify entries
-    await pool.query("DELETE FROM knowledge WHERE source='shopify'");
-    
-    // Insert each product and its variants as separate knowledge entries
-    for (let product of products) {
-      const baseTitle = product.title;
-      let baseContentText = "";
-      
-      if (product.body_html) {
-        // Remove HTML tags
-        baseContentText = product.body_html.replace(/<[^>]+>/g, '');
-      }
-      
-      // Insert each variant as a separate knowledge entry
-      if (product.variants && product.variants.length > 0) {
-        for (let variant of product.variants) {
-          // Create variant-specific title and content
-          let variantTitle = baseTitle;
-          let variantContent = baseContentText;
-          
-          // Add variant option details (like size) to the title
-          if (variant.option1) {
-            variantTitle += ` - ${variant.option1}`;
-            variantContent += `\nSize: ${variant.option1}`;
-          }
-          if (variant.option2) {
-            variantTitle += ` ${variant.option2}`;
-            variantContent += `\nOption: ${variant.option2}`;
-          }
-          if (variant.option3) {
-            variantTitle += ` ${variant.option3}`;
-            variantContent += `\nVariant: ${variant.option3}`;
-          }
-          
-          // Add pricing
-          if (variant.price) {
-            variantContent += `\nPrice: $${variant.price}`;
-          }
-          
-          // Add availability
-          if (variant.inventory_quantity !== null) {
-            variantContent += `\nInventory: ${variant.inventory_quantity > 0 ? 'In Stock' : 'Out of Stock'}`;
-          }
-          
-          variantContent = variantContent.trim();
-          await pool.query('INSERT INTO knowledge(title, content, source) VALUES($1, $2, $3)', 
-            [variantTitle, variantContent, 'shopify']);
-        }
-      } else {
-        // No variants, insert base product
-        await pool.query('INSERT INTO knowledge(title, content, source) VALUES($1, $2, $3)', 
-          [baseTitle, baseContentText.trim(), 'shopify']);
-      }
-    }
-    
-    await logEvent('info', `Knowledge base synced with Shopify: ${products.length} products updated.`);
-    res.json({ success: true, count: products.length });
-    
   } catch (err) {
-    console.error("Error syncing Shopify products:", err);
-    await logEvent('error', `Shopify sync failed: ${err.message}`);
-    res.status(500).json({ error: "Failed to sync Shopify products" });
+    console.error("Error in enhanced Shopify sync:", err);
+    await logEvent('error', `Enhanced Shopify sync failed: ${err.message}`);
+    res.status(500).json({ error: "Failed to sync Shopify data" });
   }
 });
 
