@@ -202,7 +202,7 @@ async function initDatabase(retries = 3) {
       id SERIAL PRIMARY KEY,
       title TEXT NOT NULL,
       content TEXT NOT NULL,
-      source TEXT DEFAULT 'manual' CHECK (source IN ('manual', 'shopify')),
+      source TEXT DEFAULT 'manual' CHECK (source IN ('manual', 'shopify', 'shopify-meta', 'shopify-policy', 'shopify-page', 'website', 'website-blog', 'website-page', 'website-collection')),
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`);
