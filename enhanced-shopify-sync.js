@@ -3,6 +3,8 @@
  * Syncs products with metafields, store policies, and website content
  */
 
+const completeWebsiteSync = require('./complete-website-sync');
+
 async function enhancedShopifySync(pool, SHOPIFY_STORE_DOMAIN, SHOPIFY_ACCESS_TOKEN) {
   const fetch = (await import('node-fetch')).default;
   const syncResults = {
@@ -245,41 +247,25 @@ async function enhancedShopifySync(pool, SHOPIFY_STORE_DOMAIN, SHOPIFY_ACCESS_TO
       syncResults.errors.push(`Store metafields: ${storeMetaErr.message}`);
     }
     
-    // 6. Scrape website for additional content
-    console.log('🌐 Fetching website content...');
+    // 6. Complete website sync - scrape ALL pages, blogs, collections
+    console.log('🌐 Starting complete website content sync...');
     try {
-      const websiteUrl = `https://${SHOPIFY_STORE_DOMAIN.replace('.myshopify.com', '.com')}`;
-      const websiteResponse = await fetch(websiteUrl);
+      const websiteResults = await completeWebsiteSync(pool, SHOPIFY_STORE_DOMAIN);
       
-      if (websiteResponse.ok) {
-        const html = await websiteResponse.text();
-        
-        // Extract shipping banner or announcements
-        const shippingMatch = html.match(/shipping[^<]*2-3\s*months[^<]*/gi);
-        if (shippingMatch) {
-          for (let match of shippingMatch) {
-            await pool.query('INSERT INTO knowledge(title, content, source) VALUES($1, $2, $3)', 
-              ['Website Shipping Information', match, 'shopify-page']);
-            syncResults.pages++;
-          }
-        }
-        
-        // Extract any announcement bars
-        const announcementMatch = html.match(/<div[^>]*announcement[^>]*>(.*?)<\/div>/gi);
-        if (announcementMatch) {
-          for (let match of announcementMatch) {
-            const content = match.replace(/<[^>]+>/g, '').trim();
-            if (content) {
-              await pool.query('INSERT INTO knowledge(title, content, source) VALUES($1, $2, $3)', 
-                ['Store Announcement', content, 'shopify-page']);
-              syncResults.pages++;
-            }
-          }
-        }
+      // Add website results to our sync results
+      syncResults.pages += websiteResults.pages;
+      syncResults.blogs = websiteResults.blogs;
+      syncResults.collections = websiteResults.collections;
+      syncResults.websiteContent = websiteResults.content;
+      
+      if (websiteResults.errors.length > 0) {
+        syncResults.errors.push(...websiteResults.errors);
       }
+      
+      console.log(`✅ Website sync complete: ${websiteResults.content} total content entries`);
     } catch (webErr) {
-      console.error('Error fetching website content:', webErr);
-      syncResults.errors.push(`Website content: ${webErr.message}`);
+      console.error('Error in complete website sync:', webErr);
+      syncResults.errors.push(`Complete website sync: ${webErr.message}`);
     }
     
     return syncResults;
