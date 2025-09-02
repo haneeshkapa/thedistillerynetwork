@@ -134,14 +134,14 @@ if (GOOGLE_SERVICE_ACCOUNT_EMAIL && GOOGLE_PRIVATE_KEY && GOOGLE_SHEET_ID) {
     private_key: privateKey
   }).then(() => customerSheetDoc.loadInfo())
     .then(() => {
-      // Use the "Shopify" sheet tab specifically  
-      customerSheet = customerSheetDoc.sheetsByTitle['Shopify'];
-      if (!customerSheet) {
-        // Fallback to first sheet if "Shopify" not found
-        customerSheet = customerSheetDoc.sheetsByIndex[0];
-        console.log(`⚠️ "Shopify" sheet not found, using default: ${customerSheet.title}`);
-      } else {
+      // Always use the Shopify sheet (index 1) - the master sheet
+      customerSheet = customerSheetDoc.sheetsByIndex[1];
+      if (customerSheet && customerSheet.title === 'Shopify') {
         console.log(`✅ Google Sheet "Shopify" tab loaded: ${customerSheet.title}`);
+      } else if (customerSheet) {
+        console.log(`⚠️ Using sheet at index 1: ${customerSheet.title} (expected Shopify)`);
+      } else {
+        console.error('❌ No sheet found at index 1');
       }
     })
     .catch(err => {
@@ -153,8 +153,9 @@ if (GOOGLE_SERVICE_ACCOUNT_EMAIL && GOOGLE_PRIVATE_KEY && GOOGLE_SHEET_ID) {
           console.log("🔄 Retrying Google Sheets connection...");
           await customerSheetDoc.useServiceAccountAuth(googleAuth);
           await customerSheetDoc.loadInfo();
-          customerSheet = customerSheetDoc.sheetsByTitle['Shopify'] || customerSheetDoc.sheetsByIndex[0];
-          console.log(`✅ Google Sheet loaded on retry: ${customerSheet.title}`);
+          // Always use Shopify sheet at index 1
+          customerSheet = customerSheetDoc.sheetsByIndex[1];
+          console.log(`✅ Google Sheet loaded on retry: ${customerSheet ? customerSheet.title : 'NOT FOUND'}`);
         } catch (retryErr) {
           console.error("❌ Google Sheets retry failed:", retryErr.message);
         }

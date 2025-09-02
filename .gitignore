@@ -21,3 +21,6 @@ logs/
 # Backups and temporary files
 *.backup
 *.json.backup
+
+# Conversation logs
+conversation_log.md

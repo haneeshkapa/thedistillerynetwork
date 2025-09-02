@@ -23,11 +23,16 @@ async function testPhoneLookup() {
         
         console.log('✅ Connected to sheet:', doc.title);
         
+        // Get Shopify sheet (index 1) - the master sheet
+        const shopifySheet = doc.sheetsByIndex[1];
+        console.log(`📊 Using Shopify sheet: "${shopifySheet.title}" - ${shopifySheet.rowCount} rows, ${shopifySheet.columnCount} columns`);
+        
         // Use exact same phone lookup logic as server.js
         async function findCustomerByPhone(phone) {
             try {
-                const sheet = doc.sheetsByIndex[0]; // Use first sheet
-                const rows = await sheet.getRows();
+                const sheet = shopifySheet; // Always use Shopify sheet
+                console.log(`\n🔍 Searching in Shopify sheet`);
+                const rows = await sheet.getRows({ limit: 1000, offset: 0 }); // Load up to 1000 rows like server.js does
                 
                 console.log(`📊 Total rows in sheet: ${rows.length}`);
                 
@@ -95,10 +100,11 @@ async function testPhoneLookup() {
         const targetPhone = '9786778131';
         console.log(`\n🔍 Looking up phone: ${targetPhone}`);
         
+        // Check Shopify sheet only
         const customer = await findCustomerByPhone(targetPhone);
         
         if (customer) {
-            console.log('\n🎉 SUCCESS: Customer found!');
+            console.log('\n🎉 SUCCESS: Customer found in Shopify sheet!');
             console.log('Customer data:', customer._rawData);
             console.log('\n🤖 Bot would extract:');
             console.log('  Order ID:', customer._rawData[0]);
@@ -108,7 +114,7 @@ async function testPhoneLookup() {
             console.log('  Email:', customer._rawData[5]);
             console.log('  Phone:', customer._rawData[6]);
         } else {
-            console.log('\n❌ FAILURE: Customer not found');
+            console.log('\n❌ FAILURE: Customer not found in Shopify sheet');
             console.log('This explains why the bot ignores this number');
         }
         
