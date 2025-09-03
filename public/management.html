@@ -50,15 +50,13 @@
     .stat-number { font-size: 2em; font-weight: bold; color: #d4510a; }
     .stat-label { color: #6c757d; }
     
-    #voice-calls { font-family: monospace; font-size: 0.9em; }
-    .voice-call { margin: 8px 0; padding: 12px; background: #f8f9fa; border-left: 4px solid #17a2b8; border-radius: 4px; }
-    .voice-call.completed { border-left-color: #28a745; }
-    .voice-call.failed { border-left-color: #dc3545; }
-    .voice-call.in-progress { border-left-color: #ffc107; }
-    .voice-call-header { font-weight: bold; margin-bottom: 5px; }
-    .voice-call-details { color: #6c757d; font-size: 0.85em; }
-    .voice-call-transcription { background: #ffffff; margin-top: 8px; padding: 8px; border-radius: 3px; border: 1px solid #dee2e6; }
-    .voice-call-responses { background: #e3f2fd; margin-top: 8px; padding: 8px; border-radius: 3px; border: 1px solid #bbdefb; }
+    #email-alerts { font-family: monospace; font-size: 0.9em; }
+    .email-alert { margin: 8px 0; padding: 12px; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 4px; }
+    .email-alert.urgent { border-left-color: #dc3545; background: #f8d7da; }
+    .email-alert-header { font-weight: bold; margin-bottom: 5px; color: #721c24; }
+    .email-alert-details { color: #6c757d; font-size: 0.85em; margin-bottom: 8px; }
+    .email-alert-subject { background: #ffffff; margin-top: 8px; padding: 8px; border-radius: 3px; border: 1px solid #dee2e6; font-weight: bold; }
+    .email-alert-time { color: #856404; font-size: 0.8em; }
   </style>
 </head>
 <body>
@@ -148,12 +146,12 @@
       <ul id="kb-list"></ul>
     </div>
 
-    <!-- Voice Calls Section -->
+    <!-- Email Alerts Section -->
     <div class="section">
-      <h2>📞 Voice Calls</h2>
-      <p>Recent voice calls handled by the AI system</p>
-      <button id="refresh-voice-calls-btn" class="btn-secondary">Refresh Voice Calls</button>
-      <div id="voice-calls" style="max-height: 400px; overflow-y: auto; margin-top: 15px;"></div>
+      <h2>📧 Customer Email Alerts</h2>
+      <p>Recent emails from customers to Jonathan - Action Required</p>
+      <button id="refresh-email-alerts-btn" class="btn-secondary">Refresh Email Alerts</button>
+      <div id="email-alerts" style="max-height: 400px; overflow-y: auto; margin-top: 15px;"></div>
     </div>
 
     <!-- Logs Section -->
@@ -513,59 +511,48 @@ document.getElementById('sync-shopify-btn').onclick = async () => {
 };
 
 // Load voice calls
-async function loadVoiceCalls() {
+async function loadEmailAlerts() {
   try {
-    const res = await fetch('/api/voice-calls');
-    const calls = await res.json();
-    const callsDiv = document.getElementById('voice-calls');
-    callsDiv.innerHTML = '';
+    const res = await fetch('/api/email-alerts');
+    const alerts = await res.json();
+    const alertsDiv = document.getElementById('email-alerts');
+    alertsDiv.innerHTML = '';
     
-    if (calls.length === 0) {
-      callsDiv.innerHTML = '<p style="text-align: center; color: #6c757d; margin: 20px;">No voice calls yet</p>';
+    if (alerts.length === 0) {
+      alertsDiv.innerHTML = '<p style="text-align: center; color: #6c757d; margin: 20px;">No email alerts yet</p>';
       return;
     }
     
-    calls.forEach(call => {
-      const callDiv = document.createElement('div');
-      callDiv.className = `voice-call ${call.status}`;
+    alerts.forEach(alert => {
+      const alertDiv = document.createElement('div');
+      alertDiv.className = `email-alert`;
       
-      const duration = call.duration ? `${call.duration}s` : 'N/A';
-      const customerName = call.customer_name || 'Unknown';
-      const startTime = formatTimestamp(call.started_at);
+      const customerName = alert.customer_name || 'Unknown';
+      const receivedTime = formatTimestamp(alert.received_at);
       
       let headerHtml = `
-        <div class="voice-call-header">
-          📞 ${customerName} (${call.phone}) - ${call.status.toUpperCase()}
+        <div class="email-alert-header">
+          📧 ${customerName} (${alert.email}) - NEW EMAIL
         </div>
-        <div class="voice-call-details">
-          Started: ${startTime} | Duration: ${duration} | Direction: ${call.direction}
+        <div class="email-alert-details">
+          Received: ${receivedTime} | Subject: ${escapeHTML(alert.subject)}
         </div>
       `;
       
-      if (call.transcription) {
+      if (alert.content) {
         headerHtml += `
-          <div class="voice-call-transcription">
-            <strong>Customer said:</strong> "${escapeHTML(call.transcription)}"
+          <div class="email-alert-content">
+            <strong>Message:</strong> "${escapeHTML(alert.content.substring(0, 200))}${alert.content.length > 200 ? '...' : ''}"
           </div>
         `;
       }
       
-      if (call.ai_responses && call.ai_responses.length > 0) {
-        headerHtml += `<div class="voice-call-responses">
-          <strong>AI Responses:</strong><br>
-        `;
-        call.ai_responses.forEach((response, idx) => {
-          headerHtml += `${idx + 1}. "${escapeHTML(response)}"<br>`;
-        });
-        headerHtml += '</div>';
-      }
-      
-      callDiv.innerHTML = headerHtml;
-      callsDiv.appendChild(callDiv);
+      alertDiv.innerHTML = headerHtml;
+      alertsDiv.appendChild(alertDiv);
     });
     
   } catch (error) {
-    console.error('Failed to load voice calls:', error);
+    console.error('Failed to load email alerts:', error);
   }
 }
 
@@ -598,7 +585,7 @@ document.getElementById('refresh-conversations-btn').onclick = () => {
   loadStats();
 };
 document.getElementById('refresh-knowledge-btn').onclick = loadKnowledge;
-document.getElementById('refresh-voice-calls-btn').onclick = loadVoiceCalls;
+document.getElementById('refresh-email-alerts-btn').onclick = loadEmailAlerts;
 document.getElementById('refresh-logs-btn').onclick = loadLogs;
 
 // Initialize the dashboard
@@ -609,7 +596,7 @@ async function initDashboard() {
     loadPersonality(),
     loadSystemInstructions(),
     loadKnowledge(),
-    loadVoiceCalls(),
+    loadEmailAlerts(),
     loadLogs()
   ]);
 }

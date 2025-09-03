@@ -534,6 +534,131 @@ setInterval(monitorMemory, 120000);
 // Initial memory report
 setTimeout(monitorMemory, 5000);
 
+// Email notification endpoint for customer emails to Jonathan
+app.post('/email-notify', async (req, res) => {
+  try {
+    const { from_email, subject, body, to_email } = req.body;
+    
+    if (!from_email || !subject) {
+      return res.status(400).json({ error: 'from_email and subject are required' });
+    }
+
+    // Normalize email address
+    const normalizedEmail = from_email.toLowerCase().trim();
+    
+    // Look up customer by email address
+    const customer = await findCustomerByEmail(normalizedEmail);
+    
+    if (!customer) {
+      console.log(`❌ Email from non-customer: ${from_email}`);
+      await logEvent('info', `Non-customer email from ${from_email}: ${subject}`);
+      return res.json({ 
+        message: 'Email received but sender not in customer database',
+        customer_found: false 
+      });
+    }
+
+    // Found a customer - log the email and create notification
+    const customerName = customer.name || 'Unknown Customer';
+    const customerPhone = customer.phone || 'No phone';
+    
+    await logEvent('info', `📧 Customer email from ${customerName} (${from_email}): "${subject}"`);
+    
+    // Create or update conversation record
+    let phone = customerPhone.replace(/\D/g, '');
+    if (phone) {
+      const convResult = await pool.query(
+        'SELECT * FROM conversations WHERE phone = $1', 
+        [phone]
+      );
+      
+      let conversation;
+      if (convResult.rows.length === 0) {
+        // Create new conversation record
+        await pool.query(
+          'INSERT INTO conversations (phone, name) VALUES ($1, $2)',
+          [phone, customerName]
+        );
+        conversation = { phone, name: customerName };
+      } else {
+        conversation = convResult.rows[0];
+        // Update last active
+        await pool.query(
+          'UPDATE conversations SET last_active = CURRENT_TIMESTAMP WHERE phone = $1',
+          [phone]
+        );
+      }
+
+      // Log email as a message in the conversation
+      await pool.query(
+        'INSERT INTO messages (phone, sender, message) VALUES ($1, $2, $3)',
+        [phone, 'user', `📧 EMAIL: "${subject}" - ${body || 'No content'}`]
+      );
+    }
+
+    // Prepare notification response with customer context
+    const notification = {
+      alert: `📧 Customer Email Alert`,
+      customer_name: customerName,
+      customer_email: from_email,
+      customer_phone: customerPhone,
+      subject: subject,
+      preview: body ? body.substring(0, 200) + '...' : 'No content',
+      order_info: customer.orderInfo || null,
+      timestamp: new Date().toISOString(),
+      action_needed: true
+    };
+
+    console.log(`🔔 EMAIL ALERT: ${customerName} emailed Jonathan about "${subject}"`);
+    
+    return res.json({
+      success: true,
+      message: 'Customer email processed and logged',
+      customer_found: true,
+      notification: notification
+    });
+
+  } catch (error) {
+    console.error('❌ Email notification error:', error);
+    await logEvent('error', `Email notification failed: ${error.message}`);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Helper function to find customer by email address
+async function findCustomerByEmail(email) {
+  if (!customerSheet) return null;
+  
+  try {
+    const rows = await customerSheet.getRows({ limit: 1000, offset: 0 });
+    
+    for (const row of rows) {
+      const rowData = row._rawData;
+      if (!rowData || rowData.length === 0) continue;
+      
+      // Check multiple email fields (usually in columns 0, 5, or other email columns)
+      for (let i = 0; i < Math.min(10, rowData.length); i++) {
+        const cellValue = String(rowData[i] || '').toLowerCase().trim();
+        
+        // Check if this cell contains an email that matches
+        if (cellValue.includes('@') && cellValue === email) {
+          return {
+            name: rowData[2] || rowData[1] || 'Unknown Customer',
+            email: cellValue,
+            phone: rowData[6] || rowData[7] || 'No phone',
+            _rawData: rowData
+          };
+        }
+      }
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('❌ Email customer lookup error:', error);
+    return null;
+  }
+}
+
 // SMS Reply endpoint (webhook for incoming SMS)
 app.post('/reply', async (req, res) => {
   const incomingPhone = req.body.phone || req.body.From;
@@ -1091,6 +1216,43 @@ app.get('/admin', (req, res) => {
 });
 
 // Get all conversations
+// Get recent email alerts
+app.get('/api/email-alerts', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT level, message, timestamp 
+       FROM logs 
+       WHERE message LIKE '%Customer email from%'
+       ORDER BY timestamp DESC 
+       LIMIT 50`
+    );
+    
+    const emailAlerts = result.rows.map(log => {
+      // Parse the log message to extract email info
+      const match = log.message.match(/Customer email from (.*?) \((.*?)\): "(.*?)"/);
+      if (match) {
+        return {
+          customer_name: match[1],
+          email: match[2], 
+          subject: match[3],
+          timestamp: log.timestamp,
+          level: log.level
+        };
+      }
+      return {
+        raw_message: log.message,
+        timestamp: log.timestamp,
+        level: log.level
+      };
+    });
+    
+    res.json(emailAlerts);
+  } catch (err) {
+    console.error("Error fetching email alerts:", err);
+    res.status(500).json({ error: "Failed to fetch email alerts" });
+  }
+});
+
 app.get('/api/conversations', async (req, res) => {
   try {
     const result = await pool.query(

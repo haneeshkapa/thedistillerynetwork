@@ -3,6 +3,11 @@ node_modules/
 
 # Environment and secrets
 .env
+.env.local
+.env.development
+.env.test
+.env.production
+.env.bluehost
 credentials.json
 
 # Local data files (use PostgreSQL instead)
@@ -21,6 +26,29 @@ logs/
 # Backups and temporary files
 *.backup
 *.json.backup
+build/
+dist/
+
+# SSH keys and certificates
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# PM2 logs
+.pm2/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
 
 # Conversation logs
 conversation_log.md
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
