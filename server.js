@@ -12,6 +12,7 @@ const { GoogleSpreadsheet } = require('google-spreadsheet');
 const { Pool } = require('pg');
 const path = require('path');
 const redis = require('redis');
+const nodemailer = require('nodemailer');
 
 const AdvancedKnowledgeRetriever = require('./advanced-retriever');
 const PriceValidator = require('./price-validator');
@@ -94,6 +95,21 @@ if (redisClient) {
 const anthropicClient = new Anthropic({
   apiKey: ANTHROPIC_API_KEY
 });
+
+// Initialize email transporter (using Gmail SMTP as example)
+let emailTransporter = null;
+if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+  emailTransporter = nodemailer.createTransporter({
+    service: 'gmail',
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS
+    }
+  });
+  console.log('✅ Email transporter configured');
+} else {
+  console.warn('⚠️ Email credentials not found in environment variables');
+}
 
 
 // Google Sheets setup for customer data
@@ -534,13 +550,13 @@ setInterval(monitorMemory, 120000);
 // Initial memory report
 setTimeout(monitorMemory, 5000);
 
-// Email notification endpoint for customer emails to Jonathan
+// Email response endpoint for customer emails to owner@thedistillerynetwork.com
 app.post('/email-notify', async (req, res) => {
   try {
     const { from_email, subject, body, to_email } = req.body;
     
-    if (!from_email || !subject) {
-      return res.status(400).json({ error: 'from_email and subject are required' });
+    if (!from_email || !subject || !body) {
+      return res.status(400).json({ error: 'from_email, subject, and body are required' });
     }
 
     // Normalize email address
@@ -558,69 +574,97 @@ app.post('/email-notify', async (req, res) => {
       });
     }
 
-    // Found a customer - log the email and create notification
+    // Found a customer - process like SMS conversation
     const customerName = customer.name || 'Unknown Customer';
     const customerPhone = customer.phone || 'No phone';
     
     await logEvent('info', `📧 Customer email from ${customerName} (${from_email}): "${subject}"`);
     
-    // Create or update conversation record
-    let phone = customerPhone.replace(/\D/g, '');
-    if (phone) {
-      const convResult = await pool.query(
-        'SELECT * FROM conversations WHERE phone = $1', 
-        [phone]
-      );
-      
-      let conversation;
-      if (convResult.rows.length === 0) {
-        // Create new conversation record
-        await pool.query(
-          'INSERT INTO conversations (phone, name) VALUES ($1, $2)',
-          [phone, customerName]
-        );
-        conversation = { phone, name: customerName };
-      } else {
-        conversation = convResult.rows[0];
-        // Update last active
-        await pool.query(
-          'UPDATE conversations SET last_active = CURRENT_TIMESTAMP WHERE phone = $1',
-          [phone]
-        );
-      }
-
-      // Log email as a message in the conversation
+    // Create or update conversation record using email as identifier
+    const emailId = `email:${normalizedEmail}`;
+    const convResult = await pool.query(
+      'SELECT * FROM conversations WHERE phone = $1', 
+      [emailId]
+    );
+    
+    let conversation;
+    if (convResult.rows.length === 0) {
+      // Create new conversation record for email
       await pool.query(
-        'INSERT INTO messages (phone, sender, message) VALUES ($1, $2, $3)',
-        [phone, 'user', `📧 EMAIL: "${subject}" - ${body || 'No content'}`]
+        'INSERT INTO conversations (phone, name, paused, requested_human, last_active) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)',
+        [emailId, customerName, false, false]
+      );
+      conversation = { phone: emailId, name: customerName };
+    } else {
+      conversation = convResult.rows[0];
+      // Update last active
+      await pool.query(
+        'UPDATE conversations SET last_active = CURRENT_TIMESTAMP WHERE phone = $1',
+        [emailId]
       );
     }
 
-    // Prepare notification response with customer context
-    const notification = {
-      alert: `📧 Customer Email Alert`,
-      customer_name: customerName,
-      customer_email: from_email,
-      customer_phone: customerPhone,
-      subject: subject,
-      preview: body ? body.substring(0, 200) + '...' : 'No content',
-      order_info: customer.orderInfo || null,
-      timestamp: new Date().toISOString(),
-      action_needed: true
-    };
+    // Log the email as an incoming message
+    const emailMessage = `📧 ${subject}\n\n${body}`;
+    await pool.query(
+      'INSERT INTO messages (phone, sender, message) VALUES ($1, $2, $3)',
+      [emailId, 'user', emailMessage]
+    );
 
-    console.log(`🔔 EMAIL ALERT: ${customerName} emailed Jonathan about "${subject}"`);
+    // Generate AI response using the same logic as SMS
+    const aiResponse = await generateAIResponse(emailId, emailMessage, customerName, customer);
     
+    // Log the AI response
+    await pool.query(
+      'INSERT INTO messages (phone, sender, message) VALUES ($1, $2, $3)',
+      [emailId, 'assistant', aiResponse]
+    );
+
+    // Send email response if email transporter is configured
+    if (emailTransporter) {
+      try {
+        await emailTransporter.sendMail({
+          from: `"The Distillery Network" <${process.env.EMAIL_USER}>`,
+          to: from_email,
+          subject: `Re: ${subject}`,
+          text: aiResponse,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px;">
+                <p>Hi ${customerName},</p>
+                <div style="white-space: pre-wrap; line-height: 1.6;">${aiResponse.replace(/\n/g, '<br>')}</div>
+                <br>
+                <p style="color: #6c757d; font-size: 14px;">
+                  Best regards,<br>
+                  The Distillery Network Team<br>
+                  <a href="https://thedistillerynetwork.com">thedistillerynetwork.com</a>
+                </p>
+              </div>
+            </div>
+          `
+        });
+        
+        console.log(`✅ Email response sent to ${customerName} (${from_email})`);
+        await logEvent('info', `📧 Email response sent to ${customerName}: "${aiResponse.substring(0, 100)}..."`);
+        
+      } catch (emailError) {
+        console.error('❌ Failed to send email response:', emailError);
+        await logEvent('error', `Failed to send email to ${from_email}: ${emailError.message}`);
+      }
+    }
+
     return res.json({
       success: true,
-      message: 'Customer email processed and logged',
+      message: 'Email processed and AI response sent',
       customer_found: true,
-      notification: notification
+      customer_name: customerName,
+      ai_response: aiResponse,
+      email_sent: !!emailTransporter
     });
 
   } catch (error) {
-    console.error('❌ Email notification error:', error);
-    await logEvent('error', `Email notification failed: ${error.message}`);
+    console.error('❌ Email processing error:', error);
+    await logEvent('error', `Email processing failed: ${error.message}`);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
