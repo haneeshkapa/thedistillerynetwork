@@ -96,17 +96,22 @@ const anthropicClient = new Anthropic({
   apiKey: ANTHROPIC_API_KEY
 });
 
-// Initialize email transporter (using Gmail SMTP as example)
+// Initialize email transporter (using Outlook SMTP)
 let emailTransporter = null;
 if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
   emailTransporter = nodemailer.createTransporter({
-    service: 'gmail',
+    host: 'smtp-mail.outlook.com',
+    port: 587,
+    secure: false,
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS
+    },
+    tls: {
+      ciphers: 'SSLv3'
     }
   });
-  console.log('✅ Email transporter configured');
+  console.log('✅ Email transporter configured for Outlook');
 } else {
   console.warn('⚠️ Email credentials not found in environment variables');
 }
