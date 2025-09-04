@@ -1140,15 +1140,26 @@ async function generateAIResponse(phone, userMessage, customer = null) {
       const customerName = getCustomerData(customer, 'Name', 2) || getCustomerData(customer, 'Customer', 2);
       const customerEmail = getCustomerData(customer, 'Email', 0);
       const customerPhone = getCustomerData(customer, 'Phone', 1);
-      const orderInfo = customer._rawData.slice(0, 15).join(' | ').trim();
+      
+      // Parse customer data into more readable format
+      const rawData = customer._rawData || [];
+      let orderDetails = '';
+      if (rawData.length > 0) {
+        orderDetails = `
+Customer Details from Database:
+- Name: ${rawData[2] || 'N/A'}
+- Email: ${rawData[0] || 'N/A'} 
+- Phone: ${rawData[1] || rawData[6] || rawData[7] || 'N/A'}
+- Order Status: ${rawData[3] || rawData[4] || rawData[5] || 'N/A'}
+- Product/Order Info: ${rawData.slice(8, 12).filter(x => x).join(', ') || 'N/A'}
+- Additional Info: ${rawData.slice(12, 15).filter(x => x).join(', ') || 'N/A'}
+- Raw Data: ${rawData.slice(0, 15).join(' | ')}`;
+      }
       
       customerContext = `This is a known customer with the following information:
-Name: ${customerName || 'Name not available'}
-Email: ${customerEmail || 'Email not available'}  
-Phone: ${customerPhone || 'Phone not available'}
-Full Customer Record: ${orderInfo}
+${orderDetails}
 
-You have access to their complete information above. Use this data to provide specific, personalized responses about their orders, status, and history. Don't ask for information you can already see.`;
+IMPORTANT: Use the specific order status and details above to provide accurate, personalized responses. If the order shows "shipped" or tracking info, tell them that. If it shows specific products or dates, reference those. Don't give generic timeline information when you have their actual data.`;
     }
     
     // Build system content using template with replacements
