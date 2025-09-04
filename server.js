@@ -96,22 +96,19 @@ const anthropicClient = new Anthropic({
   apiKey: ANTHROPIC_API_KEY
 });
 
-// Initialize email transporter (using Outlook SMTP)
+// Initialize email transporter (using GoDaddy/custom domain SMTP)
 let emailTransporter = null;
 if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-  emailTransporter = nodemailer.createTransporter({
-    host: 'smtp-mail.outlook.com',
-    port: 587,
-    secure: false,
+  emailTransporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST || 'smtpout.secureserver.net', // GoDaddy SMTP
+    port: process.env.SMTP_PORT || 465,
+    secure: true, // Use SSL
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS
-    },
-    tls: {
-      ciphers: 'SSLv3'
     }
   });
-  console.log('✅ Email transporter configured for Outlook');
+  console.log('✅ Email transporter configured for custom domain');
 } else {
   console.warn('⚠️ Email credentials not found in environment variables');
 }
