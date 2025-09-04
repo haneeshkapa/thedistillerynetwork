@@ -623,6 +623,9 @@ app.post('/email-notify', async (req, res) => {
     );
 
     // Send email response if email transporter is configured
+    let emailSent = false;
+    let emailError = null;
+    
     if (emailTransporter) {
       try {
         await emailTransporter.sendMail({
@@ -646,22 +649,26 @@ app.post('/email-notify', async (req, res) => {
           `
         });
         
+        emailSent = true;
         console.log(`✅ Email response sent to ${customerName} (${from_email})`);
         await logEvent('info', `📧 Email response sent to ${customerName}: "${aiResponse.substring(0, 100)}..."`);
         
-      } catch (emailError) {
-        console.error('❌ Failed to send email response:', emailError);
-        await logEvent('error', `Failed to send email to ${from_email}: ${emailError.message}`);
+      } catch (error) {
+        emailError = error.message;
+        console.error('❌ Failed to send email response:', error);
+        await logEvent('error', `Failed to send email to ${from_email}: ${error.message}`);
       }
     }
 
     return res.json({
       success: true,
-      message: 'Email processed and AI response sent',
+      message: emailSent ? 'Email processed and AI response sent' : 'Email processed but failed to send response',
       customer_found: true,
       customer_name: customerName,
       ai_response: aiResponse,
-      email_sent: !!emailTransporter
+      email_sent: emailSent,
+      email_error: emailError,
+      email_configured: !!emailTransporter
     });
 
   } catch (error) {
