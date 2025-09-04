@@ -1132,7 +1132,16 @@ async function generateAIResponse(phone, userMessage, customer = null) {
       
       const customerName = getCustomerData(customer, 'Name', 2) || getCustomerData(customer, 'Customer', 2);
       const customerEmail = getCustomerData(customer, 'Email', 0);
-      customerContext = `This is a known customer: ${customerName || 'Name not available'}\nEmail: ${customerEmail || 'Email not available'}`;
+      const customerPhone = getCustomerData(customer, 'Phone', 1);
+      const orderInfo = customer._rawData.slice(0, 15).join(' | ').trim();
+      
+      customerContext = `This is a known customer with the following information:
+Name: ${customerName || 'Name not available'}
+Email: ${customerEmail || 'Email not available'}  
+Phone: ${customerPhone || 'Phone not available'}
+Full Customer Record: ${orderInfo}
+
+You have access to their complete information above. Use this data to provide specific, personalized responses about their orders, status, and history. Don't ask for information you can already see.`;
     }
     
     // Build system content using template with replacements
