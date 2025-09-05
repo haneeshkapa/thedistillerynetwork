@@ -285,10 +285,19 @@ async function loadConversations() {
 // Show conversation detail and messages
 async function showConversation(phone) {
   try {
+    console.log('Loading conversation for:', phone);
     const encodedPhone = encodeURIComponent(phone);
-    const res = await fetch('/api/conversation/' + encodedPhone);
+    console.log('Encoded phone:', encodedPhone);
+    const url = '/api/conversation/' + encodedPhone;
+    console.log('Fetching URL:', url);
+    
+    const res = await fetch(url);
+    console.log('Response status:', res.status);
+    
     if (!res.ok) {
-      alert('Failed to load conversation.');
+      const errorText = await res.text();
+      console.error('Failed to load conversation:', res.status, errorText);
+      alert(`Failed to load conversation: ${res.status} - ${errorText}`);
       return;
     }
     
