@@ -273,7 +273,10 @@ async function loadConversations() {
       li.className = statusClass;
       const emailAddr = conv.phone.replace('email:', '');
       li.textContent = `📧 ${conv.name || 'Unknown'} - ${emailAddr}${statusText}`;
-      li.onclick = () => showConversation(conv.phone);
+      li.onclick = () => {
+        console.log('Email conversation clicked, phone:', conv.phone);
+        showConversation(conv.phone);
+      };
       emailConvList.appendChild(li);
     });
     
