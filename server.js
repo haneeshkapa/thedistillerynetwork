@@ -96,19 +96,17 @@ const anthropicClient = new Anthropic({
   apiKey: ANTHROPIC_API_KEY
 });
 
-// Initialize email transporter (using GoDaddy/custom domain SMTP)
+// Initialize email transporter (using Gmail SMTP)
 let emailTransporter = null;
 if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
   emailTransporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST || 'smtpout.secureserver.net', // GoDaddy SMTP
-    port: process.env.SMTP_PORT || 465,
-    secure: true, // Use SSL
+    service: 'gmail',
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS
     }
   });
-  console.log('✅ Email transporter configured for custom domain');
+  console.log('✅ Email transporter configured for Gmail');
 } else {
   console.warn('⚠️ Email credentials not found in environment variables');
 }
