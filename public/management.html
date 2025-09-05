@@ -273,10 +273,7 @@ async function loadConversations() {
       li.className = statusClass;
       const emailAddr = conv.phone.replace('email:', '');
       li.textContent = `📧 ${conv.name || 'Unknown'} - ${emailAddr}${statusText}`;
-      li.onclick = () => {
-        console.log('Email conversation clicked, phone:', conv.phone);
-        showConversation(conv.phone);
-      };
+      li.onclick = () => showConversation(conv.phone);
       emailConvList.appendChild(li);
     });
     
@@ -288,14 +285,10 @@ async function loadConversations() {
 // Show conversation detail and messages
 async function showConversation(phone) {
   try {
-    console.log('Loading conversation for:', phone);
     const encodedPhone = encodeURIComponent(phone);
-    console.log('Encoded phone:', encodedPhone);
     const url = '/api/conversation/' + encodedPhone;
-    console.log('Fetching URL:', url);
     
     const res = await fetch(url);
-    console.log('Response status:', res.status);
     
     if (!res.ok) {
       const errorText = await res.text();
@@ -669,8 +662,9 @@ async function initDashboard() {
 let lastMessageCount = 0;
 let currentViewingPhone = null;
 let isPolling = false;
+let conversationPollCount = 0;
 
-// Fast polling for real-time updates (1 second)
+// Fast polling for real-time updates (every 5 seconds)
 setInterval(() => {
   if (!isPolling) {
     isPolling = true;
@@ -678,19 +672,24 @@ setInterval(() => {
     // Always refresh conversations list
     loadConversations();
     
-    // If viewing a conversation, refresh its messages
-    const convDetail = document.getElementById('conv-detail');
-    if (!convDetail.classList.contains('hidden')) {
-      const phoneElement = document.getElementById('conv-phone');
-      if (phoneElement && phoneElement.getAttribute('data-phone')) {
-        currentViewingPhone = phoneElement.getAttribute('data-phone');
-        showConversation(currentViewingPhone);
+    // Refresh conversation details every 3 polls (15 seconds) to reduce API calls
+    conversationPollCount++;
+    if (conversationPollCount >= 3) {
+      conversationPollCount = 0;
+      
+      const convDetail = document.getElementById('conv-detail');
+      if (!convDetail.classList.contains('hidden')) {
+        const phoneElement = document.getElementById('conv-phone');
+        if (phoneElement && phoneElement.getAttribute('data-phone')) {
+          currentViewingPhone = phoneElement.getAttribute('data-phone');
+          showConversation(currentViewingPhone);
+        }
       }
     }
     
     isPolling = false;
   }
-}, 1000);
+}, 5000);
 
 // Update stats less frequently (every 10 seconds)
 setInterval(() => {
