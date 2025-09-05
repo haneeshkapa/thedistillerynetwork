@@ -87,12 +87,23 @@
       </div>
     </div>
 
-    <!-- Conversations Section -->
+    <!-- SMS Conversations Section -->
     <div class="section">
-      <h2>💬 Conversations</h2>
+      <h2>📱 SMS Conversations</h2>
       <button id="refresh-conversations-btn" class="btn-secondary">Refresh Conversations</button>
       <span id="live-indicator" style="color: #28a745; margin-left: 10px;">🔴 Live Updates (1s)</span>
       <ul id="conv-list"></ul>
+    </div>
+
+    <!-- Email Conversations Section -->
+    <div class="section">
+      <h2>📧 Email Conversations</h2>
+      <button id="refresh-email-conversations-btn" class="btn-secondary">Refresh Email Conversations</button>
+      <ul id="email-conv-list"></ul>
+    </div>
+
+    <!-- Conversation Details Section (Shared) -->
+    <div class="section">
       <div id="conv-detail" class="hidden">
         <h3>Conversation with <span id="conv-name"></span> (<span id="conv-phone"></span>)</h3>
         <p><strong>Status:</strong> <span id="conv-status"></span></p>
@@ -217,9 +228,16 @@ async function loadConversations() {
     const res = await fetch('/api/conversations');
     const convs = await res.json();
     const convList = document.getElementById('conv-list');
+    const emailConvList = document.getElementById('email-conv-list');
     convList.innerHTML = '';
+    emailConvList.innerHTML = '';
     
-    convs.forEach(conv => {
+    // Separate SMS and email conversations
+    const smsConversations = convs.filter(conv => !conv.phone.startsWith('email:'));
+    const emailConversations = convs.filter(conv => conv.phone.startsWith('email:'));
+    
+    // Load SMS conversations
+    smsConversations.forEach(conv => {
       const li = document.createElement('li');
       let statusClass = '';
       let statusText = '';
@@ -233,10 +251,32 @@ async function loadConversations() {
       }
       
       li.className = statusClass;
-      li.textContent = `${conv.name || 'Unknown'} - ${conv.phone}${statusText}`;
+      li.textContent = `📱 ${conv.name || 'Unknown'} - ${conv.phone}${statusText}`;
       li.onclick = () => showConversation(conv.phone);
       convList.appendChild(li);
     });
+    
+    // Load email conversations
+    emailConversations.forEach(conv => {
+      const li = document.createElement('li');
+      let statusClass = '';
+      let statusText = '';
+      
+      if (conv.paused && conv.requested_human) {
+        statusClass = 'requested-human';
+        statusText = ' (🙋 NEEDS HUMAN)';
+      } else if (conv.paused) {
+        statusClass = 'paused';
+        statusText = ' (⏸️ PAUSED)';
+      }
+      
+      li.className = statusClass;
+      const emailAddr = conv.phone.replace('email:', '');
+      li.textContent = `📧 ${conv.name || 'Unknown'} - ${emailAddr}${statusText}`;
+      li.onclick = () => showConversation(conv.phone);
+      emailConvList.appendChild(li);
+    });
+    
   } catch (error) {
     console.error('Failed to load conversations:', error);
   }
@@ -245,7 +285,8 @@ async function loadConversations() {
 // Show conversation detail and messages
 async function showConversation(phone) {
   try {
-    const res = await fetch('/api/conversation/' + phone);
+    const encodedPhone = encodeURIComponent(phone);
+    const res = await fetch('/api/conversation/' + encodedPhone);
     if (!res.ok) {
       alert('Failed to load conversation.');
       return;
@@ -257,7 +298,12 @@ async function showConversation(phone) {
     
     document.getElementById('conv-detail').classList.remove('hidden');
     document.getElementById('conv-name').textContent = convo.name || "Unknown";
-    document.getElementById('conv-phone').textContent = convo.phone;
+    
+    // Display cleaner contact info for email vs SMS
+    const phoneDisplay = convo.phone.startsWith('email:') 
+      ? `📧 ${convo.phone.replace('email:', '')}`
+      : `📱 ${convo.phone}`;
+    document.getElementById('conv-phone').textContent = phoneDisplay;
     
     let statusText = "Active";
     if (convo.paused && convo.requested_human) {
@@ -582,6 +628,10 @@ async function loadLogs() {
 // Event listeners for refresh buttons
 document.getElementById('refresh-conversations-btn').onclick = () => {
   loadConversations();
+  loadStats();
+};
+document.getElementById('refresh-email-conversations-btn').onclick = () => {
+  loadConversations(); // This now handles both SMS and email
   loadStats();
 };
 document.getElementById('refresh-knowledge-btn').onclick = loadKnowledge;
