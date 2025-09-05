@@ -311,11 +311,13 @@ async function showConversation(phone) {
     document.getElementById('conv-detail').classList.remove('hidden');
     document.getElementById('conv-name').textContent = convo.name || "Unknown";
     
-    // Display cleaner contact info for email vs SMS
+    // Display cleaner contact info for email vs SMS  
     const phoneDisplay = convo.phone.startsWith('email:') 
       ? `📧 ${convo.phone.replace('email:', '')}`
       : `📱 ${convo.phone}`;
-    document.getElementById('conv-phone').textContent = phoneDisplay;
+    const phoneElement = document.getElementById('conv-phone');
+    phoneElement.textContent = phoneDisplay;
+    phoneElement.setAttribute('data-phone', convo.phone); // Store actual phone for API calls
     
     let statusText = "Active";
     if (convo.paused && convo.requested_human) {
@@ -680,8 +682,8 @@ setInterval(() => {
     const convDetail = document.getElementById('conv-detail');
     if (!convDetail.classList.contains('hidden')) {
       const phoneElement = document.getElementById('conv-phone');
-      if (phoneElement && phoneElement.textContent) {
-        currentViewingPhone = phoneElement.textContent;
+      if (phoneElement && phoneElement.getAttribute('data-phone')) {
+        currentViewingPhone = phoneElement.getAttribute('data-phone');
         showConversation(currentViewingPhone);
       }
     }
