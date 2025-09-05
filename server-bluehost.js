@@ -12,6 +12,7 @@ const { GoogleSpreadsheet } = require('google-spreadsheet');
 const mysql = require('mysql2/promise');
 const path = require('path');
 const redis = require('redis');
+const nodemailer = require('nodemailer');
 
 const AdvancedKnowledgeRetriever = require('./advanced-retriever');
 const PriceValidator = require('./price-validator');
@@ -99,6 +100,21 @@ if (redisClient) {
 const anthropicClient = new Anthropic({
   apiKey: ANTHROPIC_API_KEY
 });
+
+// Initialize email transporter (using Gmail SMTP as example)
+let emailTransporter = null;
+if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+  emailTransporter = nodemailer.createTransporter({
+    service: 'gmail',
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS
+    }
+  });
+  console.log('✅ Email transporter configured');
+} else {
+  console.warn('⚠️ Email credentials not found in environment variables');
+}
 
 // Google Sheets setup for customer data
 let customerSheetDoc = null;
@@ -363,6 +379,40 @@ async function findCustomerByPhone(phone) {
   }
 }
 
+// Helper function to find customer by email address
+async function findCustomerByEmail(email) {
+  if (!customerSheet) return null;
+  
+  try {
+    const rows = await customerSheet.getRows({ limit: 1000, offset: 0 });
+    
+    for (const row of rows) {
+      const rowData = row._rawData;
+      if (!rowData || rowData.length === 0) continue;
+      
+      // Check multiple email fields (usually in columns 0, 5, or other email columns)
+      for (let i = 0; i < Math.min(15, rowData.length); i++) {
+        const cellValue = String(rowData[i] || '').trim().toLowerCase();
+        if (!cellValue.includes('@')) continue; // Skip non-email values
+        
+        if (cellValue === email.toLowerCase()) {
+          return {
+            name: rowData[2] || rowData[0] || 'Unknown Customer',
+            email: cellValue,
+            phone: rowData[1] || 'No phone',
+            _rawData: rowData
+          };
+        }
+      }
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('❌ Customer email lookup error:', error);
+    return null;
+  }
+}
+
 // AI Response generation (adapted for MySQL)
 async function generateAIResponse(phone, userMessage, customer) {
   try {
@@ -430,6 +480,125 @@ Respond helpfully and professionally:`;
 
 // Add all other endpoints (admin, management, etc.) with MySQL adaptations
 // ... (I'll add the key admin endpoints)
+
+// Email response endpoint for customer emails to owner@thedistillerynetwork.com
+app.post('/email-notify', async (req, res) => {
+  try {
+    const { from_email, subject, body, to_email } = req.body;
+    
+    if (!from_email || !subject || !body) {
+      return res.status(400).json({ error: 'from_email, subject, and body are required' });
+    }
+
+    // Normalize email address
+    const normalizedEmail = from_email.toLowerCase().trim();
+    
+    // Look up customer by email address
+    const customer = await findCustomerByEmail(normalizedEmail);
+    
+    if (!customer) {
+      console.log(`❌ Email from non-customer: ${from_email}`);
+      await logEvent('info', `Non-customer email from ${from_email}: ${subject}`);
+      return res.json({ 
+        message: 'Email received but sender not in customer database',
+        customer_found: false 
+      });
+    }
+
+    // Found a customer - process like SMS conversation
+    const customerName = customer.name || 'Unknown Customer';
+    const customerPhone = customer.phone || 'No phone';
+    
+    await logEvent('info', `📧 Customer email from ${customerName} (${from_email}): "${subject}"`);
+    
+    // Create or update conversation record using email as identifier
+    const emailId = `email:${normalizedEmail}`;
+    const [convResult] = await pool.execute(
+      'SELECT * FROM conversations WHERE phone = ?', 
+      [emailId]
+    );
+    
+    let conversation;
+    if (convResult.length === 0) {
+      // Create new conversation record for email
+      await pool.execute(
+        'INSERT INTO conversations (phone, name, paused, requested_human, last_active) VALUES (?, ?, ?, ?, NOW())',
+        [emailId, customerName, false, false]
+      );
+      conversation = { phone: emailId, name: customerName };
+    } else {
+      conversation = convResult[0];
+      // Update last active
+      await pool.execute(
+        'UPDATE conversations SET last_active = NOW() WHERE phone = ?',
+        [emailId]
+      );
+    }
+
+    // Log the email as an incoming message
+    const emailMessage = `📧 ${subject}\n\n${body}`;
+    await pool.execute(
+      'INSERT INTO messages (phone, sender, message) VALUES (?, ?, ?)',
+      [emailId, 'user', emailMessage]
+    );
+
+    // Generate AI response using the same logic as SMS
+    const aiResponse = await generateAIResponse(emailId, emailMessage, customerName, customer);
+    
+    // Log the AI response
+    await pool.execute(
+      'INSERT INTO messages (phone, sender, message) VALUES (?, ?, ?)',
+      [emailId, 'assistant', aiResponse]
+    );
+
+    // Send email response if email transporter is configured
+    if (emailTransporter) {
+      try {
+        await emailTransporter.sendMail({
+          from: `"The Distillery Network" <${process.env.EMAIL_USER}>`,
+          to: from_email,
+          subject: `Re: ${subject}`,
+          text: aiResponse,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px;">
+                <p>Hi ${customerName},</p>
+                <div style="white-space: pre-wrap; line-height: 1.6;">${aiResponse.replace(/\n/g, '<br>')}</div>
+                <br>
+                <p style="color: #6c757d; font-size: 14px;">
+                  Best regards,<br>
+                  The Distillery Network Team<br>
+                  <a href="https://thedistillerynetwork.com">thedistillerynetwork.com</a>
+                </p>
+              </div>
+            </div>
+          `
+        });
+        
+        console.log(`✅ Email response sent to ${customerName} (${from_email})`);
+        await logEvent('info', `📧 Email response sent to ${customerName}: "${aiResponse.substring(0, 100)}..."`);
+        
+      } catch (emailError) {
+        console.error('❌ Failed to send email response:', emailError);
+        await logEvent('error', `Failed to send email to ${from_email}: ${emailError.message}`);
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: 'Email processed and AI response sent',
+      customer_found: true,
+      customer_name: customerName,
+      ai_response: aiResponse,
+      email_sent: !!emailTransporter
+    });
+
+  } catch (error) {
+    console.error('❌ Email processing error:', error);
+    await logEvent('error', `Email processing failed: ${error.message}`);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 // Admin endpoints
 app.get('/api/conversations', async (req, res) => {

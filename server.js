@@ -223,6 +223,12 @@ async function initDatabase(retries = 3) {
       timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`);
     
+    // System settings table for AI control and other settings
+    await pool.query(`CREATE TABLE IF NOT EXISTS system_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`);
 
     // Insert default personality if none exists
     const personalityResult = await pool.query('SELECT id FROM personality LIMIT 1');
@@ -346,6 +352,17 @@ async function logEvent(level, message) {
     await pool.query('INSERT INTO logs(level, message) VALUES($1, $2)', [level, message]);
   } catch (err) {
     console.error('Failed to write log to database:', err);
+  }
+}
+
+// Helper function to check if AI is enabled
+async function isAIEnabled() {
+  try {
+    const result = await pool.query('SELECT * FROM system_settings WHERE key = $1', ['ai_enabled']);
+    return result.rows.length > 0 ? result.rows[0].value === 'true' : true; // Default to enabled
+  } catch (err) {
+    console.error('Error checking AI status:', err);
+    return true; // Default to enabled on error
   }
 }
 
@@ -576,7 +593,22 @@ app.post('/email-notify', async (req, res) => {
       });
     }
 
-    // Found a customer - process like SMS conversation
+    // Found a customer - check if AI is enabled
+    const aiEnabled = await isAIEnabled();
+    if (!aiEnabled) {
+      await logEvent('info', `AI disabled - Email from ${from_email} logged but no response sent`);
+      return res.json({
+        success: true,
+        message: 'Email processed but AI responses are disabled',
+        customer_found: true,
+        customer_name: customer.name || 'Unknown Customer',
+        ai_response: null,
+        email_sent: false,
+        ai_disabled: true
+      });
+    }
+
+    // Process like SMS conversation
     const customerName = customer.name || 'Unknown Customer';
     const customerPhone = customer.phone || 'No phone';
     
@@ -726,6 +758,13 @@ app.post('/reply', async (req, res) => {
   const timestamp = new Date();
 
   await logEvent('info', `Received SMS from ${phone}: "${userMessage}"`);
+
+  // Check if AI is enabled
+  const aiEnabled = await isAIEnabled();
+  if (!aiEnabled) {
+    await logEvent('info', `AI disabled - SMS from ${phone} logged but no response sent`);
+    return res.status(204).send(); // No Content - Tasker won't send SMS
+  }
 
   try {
     // Check/create conversation
@@ -1598,6 +1637,41 @@ app.get('/debug/sheets', async (req, res) => {
       message: err.message,
       sheetId: GOOGLE_SHEET_ID 
     });
+  }
+});
+
+// AI Control endpoints
+app.get('/api/ai-status', async (req, res) => {
+  try {
+    // Check if AI is enabled (default to enabled if no record exists)
+    const result = await pool.query('SELECT * FROM system_settings WHERE key = $1', ['ai_enabled']);
+    const enabled = result.rows.length > 0 ? result.rows[0].value === 'true' : true;
+    res.json({ enabled });
+  } catch (err) {
+    console.error('Error getting AI status:', err);
+    res.json({ enabled: true }); // Default to enabled on error
+  }
+});
+
+app.post('/api/ai-toggle', async (req, res) => {
+  try {
+    // Get current status
+    const result = await pool.query('SELECT * FROM system_settings WHERE key = $1', ['ai_enabled']);
+    const currentEnabled = result.rows.length > 0 ? result.rows[0].value === 'true' : true;
+    const newEnabled = !currentEnabled;
+    
+    // Update or insert the setting
+    if (result.rows.length > 0) {
+      await pool.query('UPDATE system_settings SET value = $1 WHERE key = $2', [newEnabled.toString(), 'ai_enabled']);
+    } else {
+      await pool.query('INSERT INTO system_settings (key, value) VALUES ($1, $2)', ['ai_enabled', newEnabled.toString()]);
+    }
+    
+    await logEvent('info', `AI ${newEnabled ? 'enabled' : 'disabled'} by admin`);
+    res.json({ enabled: newEnabled });
+  } catch (err) {
+    console.error('Error toggling AI:', err);
+    res.status(500).json({ error: 'Failed to toggle AI' });
   }
 });
 

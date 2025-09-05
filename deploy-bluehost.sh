@@ -144,6 +144,19 @@ deploy_to_server() {
     ssh -i ~/.ssh/bluehost_new "$REMOTE_USER@$REMOTE_HOST" "
         cd '$REMOTE_PATH'
         
+        # Check Node.js version
+        echo 'Checking Node.js version...'
+        node --version
+        npm --version
+        
+        # Verify Node.js 14+ is available
+        if node -e 'if (process.version.split(\".\")[0].slice(1) < 14) process.exit(1)'; then
+            echo '✅ Node.js version is compatible (14+)'
+        else
+            echo '❌ Node.js version is too old. Requires 14+'
+            exit 1
+        fi
+        
         # Install Node.js dependencies
         echo 'Installing npm packages...'
         npm install --production --no-optional

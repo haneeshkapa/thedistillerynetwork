@@ -87,6 +87,19 @@
       </div>
     </div>
 
+    <!-- AI Control Section -->
+    <div class="section">
+      <h2>🤖 AI Control</h2>
+      <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 20px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span id="ai-status-indicator" style="font-size: 24px;">🟢</span>
+          <span id="ai-status-text" style="font-weight: bold; font-size: 18px;">AI ENABLED</span>
+        </div>
+        <button id="ai-toggle-btn" class="btn-warning" style="font-size: 16px; padding: 10px 20px;">🛑 DISABLE AI</button>
+      </div>
+      <p id="ai-status-description" style="color: #666; margin: 0;">AI is currently responding to all SMS and email messages automatically.</p>
+    </div>
+
     <!-- SMS Conversations Section -->
     <div class="section">
       <h2>📱 SMS Conversations</h2>
@@ -219,6 +232,52 @@ async function loadStats() {
     document.getElementById('knowledge-entries').textContent = knowledge.length;
   } catch (error) {
     console.error('Failed to load stats:', error);
+  }
+}
+
+// AI Control functions
+async function loadAIStatus() {
+  try {
+    const res = await fetch('/api/ai-status');
+    const status = await res.json();
+    updateAIStatusUI(status.enabled);
+  } catch (error) {
+    console.error('Failed to load AI status:', error);
+  }
+}
+
+function updateAIStatusUI(enabled) {
+  const indicator = document.getElementById('ai-status-indicator');
+  const text = document.getElementById('ai-status-text');
+  const btn = document.getElementById('ai-toggle-btn');
+  const description = document.getElementById('ai-status-description');
+  
+  if (enabled) {
+    indicator.textContent = '🟢';
+    text.textContent = 'AI ENABLED';
+    btn.textContent = '🛑 DISABLE AI';
+    btn.className = 'btn-warning';
+    description.textContent = 'AI is currently responding to all SMS and email messages automatically.';
+  } else {
+    indicator.textContent = '🔴';
+    text.textContent = 'AI DISABLED';
+    btn.textContent = '✅ ENABLE AI';
+    btn.className = 'btn-success';
+    description.textContent = 'AI responses are disabled. Messages will be logged but no automatic replies will be sent.';
+  }
+}
+
+async function toggleAI() {
+  try {
+    const res = await fetch('/api/ai-toggle', { method: 'POST' });
+    const result = await res.json();
+    updateAIStatusUI(result.enabled);
+    
+    const action = result.enabled ? 'enabled' : 'disabled';
+    alert(`AI has been ${action}!`);
+  } catch (error) {
+    console.error('Failed to toggle AI:', error);
+    alert('Failed to toggle AI. Please try again.');
   }
 }
 
@@ -645,6 +704,9 @@ document.getElementById('refresh-knowledge-btn').onclick = loadKnowledge;
 document.getElementById('refresh-email-alerts-btn').onclick = loadEmailAlerts;
 document.getElementById('refresh-logs-btn').onclick = loadLogs;
 
+// AI Control event listener
+document.getElementById('ai-toggle-btn').onclick = toggleAI;
+
 // Initialize the dashboard
 async function initDashboard() {
   await Promise.all([
@@ -654,7 +716,8 @@ async function initDashboard() {
     loadSystemInstructions(),
     loadKnowledge(),
     loadEmailAlerts(),
-    loadLogs()
+    loadLogs(),
+    loadAIStatus()
   ]);
 }
 
