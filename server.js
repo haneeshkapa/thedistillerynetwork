@@ -1175,6 +1175,31 @@ async function generateAIResponse(phone, userMessage, customer = null) {
       
       await logEvent('info', `Human takeover triggered for ${phone}: "${userMessage}"`);
       
+      // Send email notification if email transporter is configured
+      if (emailTransporter) {
+        try {
+          const customerInfo = customer ? `${customer.name} (${phone})` : phone;
+          await emailTransporter.sendMail({
+            from: process.env.EMAIL_USER,
+            to: 'universalstills@gmail.com',
+            subject: `🚨 Human Takeover Required - Customer ${customerInfo}`,
+            html: `
+              <h2>Human Takeover Request</h2>
+              <p><strong>Customer:</strong> ${customerInfo}</p>
+              <p><strong>Phone:</strong> ${phone}</p>
+              <p><strong>Trigger Message:</strong> "${userMessage}"</p>
+              <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
+              <hr>
+              <p>Customer has requested to stop AI responses. Please contact them directly at ${phone} or call (603) 997-6786.</p>
+              <p><em>Conversation has been automatically paused.</em></p>
+            `
+          });
+          await logEvent('info', `Human takeover email sent for ${phone}`);
+        } catch (emailError) {
+          await logEvent('error', `Failed to send human takeover email for ${phone}: ${emailError.message}`);
+        }
+      }
+      
       // Return human handoff message
       return "I understand you'd prefer to speak with someone directly. I've paused our AI responses and notified our team. Please call (603) 997-6786 to speak with a real person, or someone will follow up with you soon.";
     }
