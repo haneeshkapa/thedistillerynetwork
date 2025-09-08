@@ -66,6 +66,7 @@ class EmailMonitor {
       }
 
       console.log(`📬 Monitoring inbox with ${box.messages.total} total messages`);
+      console.log('🔍 Only processing emails from the last 10 minutes to avoid old message backlog');
       
       // Listen for new messages
       this.imap.on('mail', (numNewMsgs) => {
@@ -73,25 +74,32 @@ class EmailMonitor {
         this.fetchNewMessages();
       });
 
-      // Process any unread messages on startup
+      // Only check for very recent messages on startup (last 10 minutes)
+      console.log('🚀 Ready to process new incoming emails...');
       this.fetchNewMessages();
     });
   }
 
   fetchNewMessages() {
-    // Search for unread messages
-    this.imap.search(['UNSEEN'], (err, results) => {
+    // Only search for emails from the last 10 minutes to avoid processing old emails
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+    const searchCriteria = [
+      'UNSEEN',
+      ['SINCE', tenMinutesAgo]
+    ];
+
+    this.imap.search(searchCriteria, (err, results) => {
       if (err) {
         console.error('❌ Email search error:', err.message);
         return;
       }
 
       if (!results || results.length === 0) {
-        console.log('📭 No new unread emails');
+        console.log('📭 No new recent emails');
         return;
       }
 
-      console.log(`📨 Found ${results.length} unread email(s)`);
+      console.log(`📨 Found ${results.length} recent unread email(s)`);
 
       const fetch = this.imap.fetch(results, {
         bodies: '',
