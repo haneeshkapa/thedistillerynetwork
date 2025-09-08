@@ -66,7 +66,7 @@ class EmailMonitor {
       }
 
       console.log(`📬 Monitoring inbox with ${box.messages.total} total messages`);
-      console.log('🔍 Only processing emails from the last 10 minutes to avoid old message backlog');
+      console.log('🔍 Processing all emails from the last 10 minutes (seen and unseen) to catch replies');
       
       // Listen for new messages
       this.imap.on('mail', (numNewMsgs) => {
@@ -81,10 +81,9 @@ class EmailMonitor {
   }
 
   fetchNewMessages() {
-    // Only search for emails from the last 10 minutes to avoid processing old emails
+    // Search for emails from the last 10 minutes, both seen and unseen to catch replies
     const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
     const searchCriteria = [
-      'UNSEEN',
       ['SINCE', tenMinutesAgo]
     ];
 
@@ -99,15 +98,17 @@ class EmailMonitor {
         return;
       }
 
-      console.log(`📨 Found ${results.length} recent unread email(s)`);
+      console.log(`📨 Found ${results.length} recent email(s) to check`);
 
       const fetch = this.imap.fetch(results, {
         bodies: '',
-        markSeen: true
+        markSeen: false // Don't mark as seen yet, we'll do it after processing
       });
 
       fetch.on('message', (msg, seqno) => {
         let buffer = '';
+        let uid = null;
+        let shouldProcess = false;
         
         msg.on('body', (stream) => {
           stream.on('data', (chunk) => {
@@ -116,16 +117,24 @@ class EmailMonitor {
         });
 
         msg.once('attributes', (attrs) => {
-          const uid = attrs.uid;
+          uid = attrs.uid;
           
           // Skip if already processed
           if (this.processedMessages.has(uid)) {
+            console.log(`⏭️  Skipping already processed email UID: ${uid}`);
+            shouldProcess = false;
             return;
           }
+          
+          shouldProcess = true;
           this.processedMessages.add(uid);
         });
 
         msg.once('end', async () => {
+          if (!shouldProcess) {
+            return;
+          }
+          
           try {
             const parsed = await simpleParser(buffer);
             await this.processEmail(parsed);
