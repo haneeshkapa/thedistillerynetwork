@@ -17,6 +17,7 @@ const nodemailer = require('nodemailer');
 const AdvancedKnowledgeRetriever = require('./advanced-retriever');
 const PriceValidator = require('./price-validator');
 const enhancedShopifySync = require('./enhanced-shopify-sync');
+const EmailMonitor = require('./email-monitor');
 
 require('dotenv').config();
 
@@ -1751,8 +1752,20 @@ initDatabase().then(() => {
   const server = app.listen(PORT, () => {
     console.log(`✅ SMS bot server listening on port ${PORT}`);
     console.log(`🥃 Jonathan's Distillation Bot server is ready!`);
+    
+    // Start email monitoring if email transporter is configured
+    if (emailTransporter) {
+      console.log('📧 Starting email monitor...');
+      const emailMonitor = new EmailMonitor();
+      emailMonitor.start();
+      
+      // Graceful shutdown
+      process.on('SIGTERM', () => {
+        console.log('📧 Stopping email monitor...');
+        emailMonitor.stop();
+      });
+    }
   });
-
 
 }).catch(err => {
   console.error('❌ Failed to start server:', err);
