@@ -645,7 +645,7 @@ app.post('/email-notify', async (req, res) => {
     );
 
     // Generate AI response using the same logic as SMS
-    const aiResponse = await generateAIResponse(emailId, emailMessage, customerName, customer);
+    const aiResponse = await generateAIResponse(emailId, emailMessage, customer);
     
     // Log the AI response
     await pool.query(

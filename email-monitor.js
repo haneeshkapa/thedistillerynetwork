@@ -19,6 +19,7 @@ class EmailMonitor {
     });
 
     this.processedMessages = new Set(); // Track processed message UIDs
+    this.processedMessageIds = new Set(); // Track processed Message-IDs to prevent duplicates
     this.isConnected = false;
     
     this.setupEventHandlers();
@@ -156,6 +157,13 @@ class EmailMonitor {
       const subject = email.subject || 'No Subject';
       const body = email.text || email.html || 'No content';
       const toEmail = email.to?.value?.[0]?.address?.toLowerCase();
+      const messageId = email.messageId;
+
+      // Check if we've already processed this specific email by Message-ID
+      if (messageId && this.processedMessageIds.has(messageId)) {
+        console.log(`⏭️  Skipping already processed email Message-ID: ${messageId}`);
+        return;
+      }
 
       console.log(`📧 Processing email from ${fromEmail}: "${subject}"`);
 
@@ -169,6 +177,11 @@ class EmailMonitor {
       if (toEmail !== process.env.EMAIL_USER?.toLowerCase()) {
         console.log('⏭️  Skipping email not sent to monitored address');
         return;
+      }
+
+      // Mark this Message-ID as processed to prevent duplicate responses
+      if (messageId) {
+        this.processedMessageIds.add(messageId);
       }
 
       // Call our existing email processing endpoint
