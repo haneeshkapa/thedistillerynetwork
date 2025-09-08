@@ -838,13 +838,7 @@ app.post('/reply', async (req, res) => {
       return res.status(204).send(); // No Content = Tasker won't send SMS
     }
 
-    // Detect if user requests a human
-    const humanRequestPattern = /human|person|representative|real person|talk to (?:someone|person)/i;
-    if (humanRequestPattern.test(userMessage)) {
-      await pool.query('UPDATE conversations SET paused=$1, requested_human=$2 WHERE phone=$3', [true, true, phone]);
-      await logEvent('info', `User at ${phone} requested a human. Marked conversation as paused.`);
-      return res.status(204).send(); // No Content = Tasker won't send SMS
-    }
+    // Human takeover detection is now handled in generateAIResponse function
 
     // Check for inventory/stock queries
     const inventoryPattern = /stock|available|availability|in stock/i;
@@ -1131,6 +1125,58 @@ app.post('/reply', async (req, res) => {
 // Helper function to generate AI response (extracted from SMS logic)
 async function generateAIResponse(phone, userMessage, customer = null) {
   try {
+    // Check for human takeover requests
+    const lowerMessage = userMessage.toLowerCase();
+    const humanTakeoverTriggers = [
+      // Direct AI/Bot stop requests
+      'stop ai', 'stop bot', 'stop robot', 'shut off ai', 'turn off ai', 'disable ai',
+      'stop the ai', 'stop this ai', 'shut down ai', 'shut down bot',
+      'no more ai', 'turn off bot', 'disable bot', 'shut off bot', 'shut off the ai',
+      'shut down the ai', 'shut down the bot', 'turn off the bot', 'disable the bot',
+      'stop responding', 'stop replying', 'stop automatic', 'stop auto',
+      'ai talk', 'letting your ai', 'your ai talk', 'stop letting',
+      
+      // Human requests
+      'talk to human', 'speak to human', 'human help', 'real person', 'actual person',
+      'talk to someone', 'speak to someone', 'human representative', 'customer service',
+      'live chat', 'human support', 'real help', 'person help', 'human agent',
+      'transfer to human', 'connect to human', 'get human', 'need human',
+      'talk to a human', 'speak to a human', 'need to talk to',
+      'i want human', 'get me human', 'human please', 'human support',
+      
+      // Stop communication requests  
+      'stop texting', 'stop messaging', 'stop responding', 'stop talking', 'shut up',
+      'stop sending', 'stop contacting', 'dont text', "don't text", 'no more texts',
+      'no more messages', 'stop spam', 'quit messaging', 'quit texting',
+      'texting off', 'messaging off', 'fucking texting',
+      'stop this', 'make it stop', 'turn this off',
+      
+      // Frustration with AI
+      'this is annoying', "you're annoying", 'stop spamming', 'leave me alone',
+      'go away', 'piss off', 'bug off', 'screw off', 'get lost',
+      'fuck off', 'shut the fuck up', 'fucking ai', 'fucking bot', 'fucking robot',
+      'stupid ai', 'stupid bot', 'useless ai', 'useless bot', 'dumb ai', 'dumb bot',
+      
+      // Explicit opt-out language
+      'unsubscribe', 'opt out', 'remove me', 'delete me', 'take me off',
+      'remove from list', 'stop subscription', 'cancel texts', 'end service'
+    ];
+    
+    const shouldTriggerHuman = humanTakeoverTriggers.some(trigger => lowerMessage.includes(trigger));
+    
+    if (shouldTriggerHuman) {
+      // Immediately pause conversation and request human
+      await pool.query(
+        'UPDATE conversations SET paused = true, requested_human = true WHERE phone = $1',
+        [phone]
+      );
+      
+      await logEvent('info', `Human takeover triggered for ${phone}: "${userMessage}"`);
+      
+      // Return human handoff message
+      return "I understand you'd prefer to speak with someone directly. I've paused our AI responses and notified our team. Please call (603) 997-6786 to speak with a real person, or someone will follow up with you soon.";
+    }
+
     // Retrieve relevant knowledge
     const knowledgeChunks = await knowledgeRetriever.retrieveRelevantChunks(userMessage, 2);
     
