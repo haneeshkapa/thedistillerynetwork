@@ -1135,6 +1135,7 @@ async function generateAIResponse(phone, userMessage, customer = null) {
       'shut down the ai', 'shut down the bot', 'turn off the bot', 'disable the bot',
       'stop responding', 'stop replying', 'stop automatic', 'stop auto',
       'ai talk', 'letting your ai', 'your ai talk', 'stop letting',
+      'ai off', 'shut ai', 'shut your ai', 'turn ai off', 'shut off your ai',
       
       // Human requests
       'talk to human', 'speak to human', 'human help', 'real person', 'actual person',
@@ -1156,6 +1157,7 @@ async function generateAIResponse(phone, userMessage, customer = null) {
       'go away', 'piss off', 'bug off', 'screw off', 'get lost',
       'fuck off', 'shut the fuck up', 'fucking ai', 'fucking bot', 'fucking robot',
       'stupid ai', 'stupid bot', 'useless ai', 'useless bot', 'dumb ai', 'dumb bot',
+      'fucking annoying', 'so annoying', 'really annoying',
       
       // Explicit opt-out language
       'unsubscribe', 'opt out', 'remove me', 'delete me', 'take me off',
