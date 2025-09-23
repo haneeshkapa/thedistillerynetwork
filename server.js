@@ -1044,8 +1044,20 @@ app.post('/reply', async (req, res) => {
       customerContext = `This is a known customer: ${customerName || 'Name not available'}\nEmail: ${customerEmail || 'Email not available'}`;
     }
     
+    // Get current date and time
+    const currentDateTime = new Date().toLocaleString('en-US', {
+      timeZone: 'America/New_York',
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+
     // Build system content using template with replacements
-    let systemContent = systemTemplate
+    let systemContent = `Current date and time: ${currentDateTime}\n\n` + systemTemplate
       .replace('{PERSONALITY}', personalityText)
       .replace('{KNOWLEDGE}', knowledgeContent)
       .replace('{CUSTOMER_CONTEXT}', customerContext)
@@ -1273,14 +1285,18 @@ ${orderDetails}
 IMPORTANT: Use the specific order status and details above to provide accurate, personalized responses. If the order shows "shipped" or tracking info, tell them that. If it shows specific products or dates, reference those. Don't give generic timeline information when you have their actual data.`;
     }
     
-    // Add current date context to prevent date confusion
-    const currentDate = new Date().toLocaleDateString('en-US', { 
-      weekday: 'long', 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric' 
+    // Add current date and time context to prevent date/time confusion
+    const currentDateTime = new Date().toLocaleString('en-US', {
+      timeZone: 'America/New_York',
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
     });
-    const dateContext = `\n\n⚠️ CURRENT DATE CONTEXT ⚠️\nToday is: ${currentDate}\nAlways use this current date for any date calculations or comparisons.\nDo not reference outdated information or incorrect dates.\n\n⚠️ CRITICAL ERROR PREVENTION ⚠️\n- If you make a mistake, acknowledge it immediately and correct it\n- Do not make up order information if you're unsure\n- Do not repeat incorrect information - fix it right away\n- If a customer corrects you, thank them and use the correct information\n- Stay consistent with dates and order details throughout the conversation\n`;
+    const dateContext = `\n\n⚠️ CURRENT DATE & TIME CONTEXT ⚠️\nRight now it is: ${currentDateTime}\nAlways use this current date and time for any date/time calculations or comparisons.\nDo not reference outdated information or incorrect dates/times.\n\n⚠️ CRITICAL ERROR PREVENTION ⚠️\n- If you make a mistake, acknowledge it immediately and correct it\n- Do not make up order information if you're unsure\n- Do not repeat incorrect information - fix it right away\n- If a customer corrects you, thank them and use the correct information\n- Stay consistent with dates and order details throughout the conversation\n`;
 
     // Build system content using template with replacements
     let systemContent = systemTemplate
