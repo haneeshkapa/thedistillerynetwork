@@ -365,6 +365,17 @@ async function isAIEnabled() {
   }
 }
 
+// Helper function to check if respond-to-all mode is enabled
+async function isRespondToAllEnabled() {
+  try {
+    const result = await pool.query('SELECT * FROM system_settings WHERE key = $1', ['respond_to_all']);
+    return result.rows.length > 0 ? result.rows[0].value === 'true' : false; // Default to sheets-only
+  } catch (err) {
+    console.error('Error checking respond-to-all status:', err);
+    return false; // Default to sheets-only on error
+  }
+}
+
 // Helper function to normalize phone numbers
 function normalizePhoneNumber(phone) {
   if (!phone) return '';
@@ -786,20 +797,32 @@ app.post('/reply', async (req, res) => {
       
       const customerName = getCustomerName(customer);
       if (!customer || !customerName) {
-        // Customer not found in Google Sheets - return no content so Tasker ignores
-        await logEvent('info', `Non-customer SMS from ${phone} - no auto-reply`);
-        return res.status(204).send(); // No Content = Tasker won't send SMS
+        // Customer not found in Google Sheets - check respond-to-all mode
+        const respondToAll = await isRespondToAllEnabled();
+        if (!respondToAll) {
+          // Sheets-only mode - return no content so Tasker ignores
+          await logEvent('info', `Non-customer SMS from ${phone} - no auto-reply (sheets-only mode)`);
+          return res.status(204).send(); // No Content = Tasker won't send SMS
+        }
+
+        // Respond-to-all mode - create conversation as Jonathan (no customer data access)
+        await logEvent('info', `Non-customer SMS from ${phone} - responding as Jonathan (respond-to-all mode)`);
+        await pool.query(
+          'INSERT INTO conversations(phone, name, paused, requested_human, last_active) VALUES($1, $2, $3, $4, $5)',
+          [phone, 'Non-customer', false, false, timestamp]
+        );
+        conversation = { phone, name: 'Non-customer', paused: false, requested_human: false };
+      } else {
+        // Customer found - proceed with conversation
+        const name = customerName;
+        await logEvent('info', `Customer identified: ${name} (phone ${phone})`);
+
+        await pool.query(
+          'INSERT INTO conversations(phone, name, paused, requested_human, last_active) VALUES($1, $2, $3, $4, $5)',
+          [phone, name, false, false, timestamp]
+        );
+        conversation = { phone, name, paused: false, requested_human: false };
       }
-      
-      // Customer found - proceed with conversation
-      const name = customerName;
-      await logEvent('info', `Customer identified: ${name} (phone ${phone})`);
-      
-      await pool.query(
-        'INSERT INTO conversations(phone, name, paused, requested_human, last_active) VALUES($1, $2, $3, $4, $5)',
-        [phone, name, false, false, timestamp]
-      );
-      conversation = { phone, name, paused: false, requested_human: false };
     } else {
       // Existing conversation: verify customer still exists in Google Sheets
       if (!conversation.name) {
@@ -817,9 +840,18 @@ app.post('/reply', async (req, res) => {
         
         const customerName = getCustomerName(customer);
         if (!customer || !customerName) {
-          // Customer no longer in Google Sheets - return no content so Tasker ignores  
-          await logEvent('info', `Non-customer SMS from removed customer ${phone} - no auto-reply`);
-          return res.status(204).send(); // No Content = Tasker won't send SMS
+          // Customer no longer in Google Sheets - check respond-to-all mode
+          const respondToAll = await isRespondToAllEnabled();
+          if (!respondToAll) {
+            // Sheets-only mode - return no content so Tasker ignores
+            await logEvent('info', `Non-customer SMS from removed customer ${phone} - no auto-reply (sheets-only mode)`);
+            return res.status(204).send(); // No Content = Tasker won't send SMS
+          }
+
+          // Respond-to-all mode - update conversation name to indicate non-customer
+          await logEvent('info', `Non-customer SMS from removed customer ${phone} - responding as Jonathan (respond-to-all mode)`);
+          await pool.query('UPDATE conversations SET name = $1 WHERE phone = $2', ['Non-customer', phone]);
+          conversation.name = 'Non-customer';
         }
       }
       
@@ -867,17 +899,25 @@ app.post('/reply', async (req, res) => {
     }
     
     const customerName = getCustomerName(customer);
-    if (!customer || !customerName) {
-      // Not a customer in Google Sheets - don't respond to anyone not in sheets
-      await logEvent('info', `Non-customer SMS from ${phone} - no auto-reply`);
-      return res.status(204).send(); // No Content = Tasker won't send SMS
+    const isCustomer = customer && customerName;
+
+    if (!isCustomer) {
+      // Not a customer in Google Sheets - check respond-to-all mode
+      const respondToAll = await isRespondToAllEnabled();
+      if (!respondToAll) {
+        // Sheets-only mode - don't respond to anyone not in sheets
+        await logEvent('info', `Non-customer SMS from ${phone} - no auto-reply (sheets-only mode)`);
+        return res.status(204).send(); // No Content = Tasker won't send SMS
+      }
+
+      // Respond-to-all mode - respond as Jonathan but WITHOUT customer data
+      await logEvent('info', `Non-customer SMS from ${phone} - responding as Jonathan without customer data`);
     }
-    
-    // This is a known customer - respond with personality to any message
-    // Check if it's an order-related message for special handling
+
+    // Handle order-related messages for customers only (not non-customers)
     const orderPattern = /order|ordered|purchase|purchased|bought|status|tracking|shipped|delivery|when will|eta|where.*my|my.*order/i;
     let orderInfo = "";
-    if (orderPattern.test(userMessage) && customer && customer._rawData) {
+    if (isCustomer && orderPattern.test(userMessage) && customer && customer._rawData) {
         // Helper function to get customer data using headers or fallback to raw index
         function getCustomerData(customer, headerName, fallbackIndex) {
           try {
@@ -1028,7 +1068,7 @@ app.post('/reply', async (req, res) => {
     // Prepare customer context
     let customerContext = "";
     if (customer && customer._rawData) {
-      // Helper function to get customer data using headers or fallback to raw index
+      // This is a customer from Google Sheets - provide customer data
       function getCustomerData(customer, headerName, fallbackIndex) {
         try {
           const value = customer[headerName];
@@ -1038,10 +1078,16 @@ app.post('/reply', async (req, res) => {
         }
         return customer._rawData[fallbackIndex] || '';
       }
-      
+
       const customerName = getCustomerData(customer, 'Name', 2) || getCustomerData(customer, 'Customer', 2);
       const customerEmail = getCustomerData(customer, 'Email', 0);
       customerContext = `This is a known customer: ${customerName || 'Name not available'}\nEmail: ${customerEmail || 'Email not available'}`;
+    } else {
+      // This is NOT a customer from Google Sheets - respond as Jonathan without customer data
+      const respondToAll = await isRespondToAllEnabled();
+      if (respondToAll) {
+        customerContext = `This person is NOT in your customer database. You are Jonathan responding personally. DO NOT access or reference any customer data, orders, or Google Sheets information. Respond naturally as Jonathan from The Distillery Network.`;
+      }
     }
     
     // Get current date and time
@@ -1769,6 +1815,39 @@ app.post('/api/ai-toggle', async (req, res) => {
   } catch (err) {
     console.error('Error toggling AI:', err);
     res.status(500).json({ error: 'Failed to toggle AI' });
+  }
+});
+
+// Respond-to-all Control endpoints
+app.get('/api/respond-all-status', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM system_settings WHERE key = $1', ['respond_to_all']);
+    const enabled = result.rows.length > 0 ? result.rows[0].value === 'true' : false;
+    res.json({ enabled });
+  } catch (err) {
+    console.error('Error getting respond-to-all status:', err);
+    res.json({ enabled: false }); // Default to sheets-only on error
+  }
+});
+
+app.post('/api/respond-all-toggle', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM system_settings WHERE key = $1', ['respond_to_all']);
+    const currentEnabled = result.rows.length > 0 ? result.rows[0].value === 'true' : false;
+    const newEnabled = !currentEnabled;
+
+    // Update or insert the setting
+    if (result.rows.length > 0) {
+      await pool.query('UPDATE system_settings SET value = $1 WHERE key = $2', [newEnabled.toString(), 'respond_to_all']);
+    } else {
+      await pool.query('INSERT INTO system_settings (key, value) VALUES ($1, $2)', ['respond_to_all', newEnabled.toString()]);
+    }
+
+    await logEvent('info', `Respond-to-all mode ${newEnabled ? 'enabled (responding to all messages as Jonathan)' : 'disabled (sheets-only mode)'} by admin`);
+    res.json({ enabled: newEnabled });
+  } catch (err) {
+    console.error('Error toggling respond-to-all:', err);
+    res.status(500).json({ error: 'Failed to toggle respond-to-all mode' });
   }
 });
 

@@ -100,6 +100,19 @@
       <p id="ai-status-description" style="color: #666; margin: 0;">AI is currently responding to all SMS and email messages automatically.</p>
     </div>
 
+    <!-- Respond-to-All Mode Control -->
+    <div class="section">
+      <h2>🎯 Response Mode Control</h2>
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span id="respond-all-status-indicator" style="font-size: 24px;">🔒</span>
+          <span id="respond-all-status-text" style="font-weight: bold; font-size: 18px;">SHEETS-ONLY MODE</span>
+        </div>
+        <button id="respond-all-toggle-btn" class="btn-secondary" style="font-size: 16px; padding: 10px 20px;">📢 RESPOND TO ALL</button>
+      </div>
+      <p id="respond-all-status-description" style="color: #666; margin: 0;">Only responding to customers found in Google Sheets. Non-customers are ignored.</p>
+    </div>
+
     <!-- SMS Conversations Section -->
     <div class="section">
       <h2>📱 SMS Conversations</h2>
@@ -272,12 +285,58 @@ async function toggleAI() {
     const res = await fetch('/api/ai-toggle', { method: 'POST' });
     const result = await res.json();
     updateAIStatusUI(result.enabled);
-    
+
     const action = result.enabled ? 'enabled' : 'disabled';
     alert(`AI has been ${action}!`);
   } catch (error) {
     console.error('Failed to toggle AI:', error);
     alert('Failed to toggle AI. Please try again.');
+  }
+}
+
+// Respond-to-all Control functions
+async function loadRespondAllStatus() {
+  try {
+    const res = await fetch('/api/respond-all-status');
+    const status = await res.json();
+    updateRespondAllStatusUI(status.enabled);
+  } catch (error) {
+    console.error('Failed to load respond-to-all status:', error);
+  }
+}
+
+function updateRespondAllStatusUI(enabled) {
+  const indicator = document.getElementById('respond-all-status-indicator');
+  const text = document.getElementById('respond-all-status-text');
+  const btn = document.getElementById('respond-all-toggle-btn');
+  const description = document.getElementById('respond-all-status-description');
+
+  if (enabled) {
+    indicator.textContent = '📢';
+    text.textContent = 'RESPOND TO ALL MODE';
+    btn.textContent = '🔒 SHEETS-ONLY';
+    btn.className = 'btn-warning';
+    description.textContent = 'Responding to ALL messages as Jonathan. Non-customers will NOT get Google Sheets data.';
+  } else {
+    indicator.textContent = '🔒';
+    text.textContent = 'SHEETS-ONLY MODE';
+    btn.textContent = '📢 RESPOND TO ALL';
+    btn.className = 'btn-secondary';
+    description.textContent = 'Only responding to customers found in Google Sheets. Non-customers are ignored.';
+  }
+}
+
+async function toggleRespondAll() {
+  try {
+    const res = await fetch('/api/respond-all-toggle', { method: 'POST' });
+    const result = await res.json();
+    updateRespondAllStatusUI(result.enabled);
+
+    const mode = result.enabled ? 'Respond to All (as Jonathan)' : 'Sheets-only';
+    alert(`Response mode changed to: ${mode}!`);
+  } catch (error) {
+    console.error('Failed to toggle respond-to-all:', error);
+    alert('Failed to toggle response mode. Please try again.');
   }
 }
 
@@ -707,6 +766,9 @@ document.getElementById('refresh-logs-btn').onclick = loadLogs;
 // AI Control event listener
 document.getElementById('ai-toggle-btn').onclick = toggleAI;
 
+// Respond-to-all Control event listener
+document.getElementById('respond-all-toggle-btn').onclick = toggleRespondAll;
+
 // Initialize the dashboard
 async function initDashboard() {
   await Promise.all([
@@ -717,7 +779,8 @@ async function initDashboard() {
     loadKnowledge(),
     loadEmailAlerts(),
     loadLogs(),
-    loadAIStatus()
+    loadAIStatus(),
+    loadRespondAllStatus()
   ]);
 }
 
