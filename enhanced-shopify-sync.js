@@ -21,7 +21,7 @@ async function enhancedShopifySync(pool, SHOPIFY_STORE_DOMAIN, SHOPIFY_ACCESS_TO
 
     // 2. Sync Products with Metafields
     console.log('📦 Syncing products with metafields...');
-    const productsUrl = `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2023-10/products.json?limit=250&fields=id,title,body_html,vendor,product_type,tags,handle,variants,images,options`;
+    const productsUrl = `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2023-10/products.json?limit=250`;
     
     const productsResponse = await fetch(productsUrl, {
       headers: { 
