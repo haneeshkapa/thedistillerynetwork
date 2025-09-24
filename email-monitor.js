@@ -21,7 +21,24 @@ class EmailMonitor {
     this.processedMessages = new Set(); // Track processed message UIDs
     this.processedMessageIds = new Set(); // Track processed Message-IDs to prevent duplicates
     this.isConnected = false;
-    
+
+    // Add global error handler to prevent crashes from IMAP errors
+    process.on('uncaughtException', (err) => {
+      if (err.code === 'ECONNRESET' && err.message) {
+        console.error('❌ Caught IMAP ECONNRESET error - reconnecting:', err.message);
+        this.isConnected = false;
+        setTimeout(() => {
+          console.log('🔄 Attempting email monitor reconnection after ECONNRESET...');
+          this.connect();
+        }, 30000);
+        return; // Don't crash the process
+      }
+
+      // For other errors, log and exit gracefully
+      console.error('❌ Uncaught exception:', err);
+      process.exit(1);
+    });
+
     this.setupEventHandlers();
   }
 
@@ -32,11 +49,22 @@ class EmailMonitor {
       this.openInbox();
     });
 
-    this.imap.once('error', (err) => {
-      console.error('❌ Email monitor error:', err.message);
+    this.imap.on('error', (err) => {
+      console.error('❌ Email monitor error:', err.message || err);
       this.isConnected = false;
+
+      // Clean up and prevent crash
+      try {
+        this.imap.end();
+      } catch (endErr) {
+        console.error('Error ending IMAP connection:', endErr.message);
+      }
+
       // Reconnect after 30 seconds
-      setTimeout(() => this.connect(), 30000);
+      setTimeout(() => {
+        console.log('🔄 Attempting email monitor reconnection...');
+        this.connect();
+      }, 30000);
     });
 
     this.imap.once('end', () => {
@@ -49,12 +77,26 @@ class EmailMonitor {
 
   connect() {
     if (this.isConnected) return;
-    
+
     console.log('🔧 Connecting to Gmail IMAP...');
+
     try {
+      // Recreate IMAP connection if needed
+      if (!this.imap || this.imap.state === 'disconnected') {
+        this.imap = new Imap({
+          user: process.env.EMAIL_USER,
+          password: process.env.EMAIL_PASS,
+          host: 'imap.gmail.com',
+          port: 993,
+          tls: true,
+          tlsOptions: { rejectUnauthorized: false }
+        });
+        this.setupEventHandlers();
+      }
       this.imap.connect();
     } catch (error) {
       console.error('❌ Failed to connect to IMAP:', error.message);
+      this.isConnected = false;
       setTimeout(() => this.connect(), 30000);
     }
   }
