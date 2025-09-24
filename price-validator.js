@@ -54,18 +54,25 @@ class PriceValidator {
         return false;
       }
       
-      // Rule 2: If we have Shopify prices and the AI mentions a price not in our catalog
+      // Rule 2: STRICT - If we have Shopify prices, only allow exact matches or very close matches
       if (shopifyPrices.size > 0) {
-        // Allow small variance (±50) for shipping, tax, etc.
-        const priceInRange = Array.from(shopifyPrices).some(shopifyPrice => 
-          Math.abs(shopifyPrice - priceVal) <= 50
+        // Only allow small variance (±$5) for rounding
+        const priceInRange = Array.from(shopifyPrices).some(shopifyPrice =>
+          Math.abs(shopifyPrice - priceVal) <= 5
         );
-        
-        if (!priceInRange && priceVal > 100) {
-          console.log(`❌ Price validation failed: Price $${priceVal} not in Shopify catalog`);
-          console.log(`Available Shopify prices:`, Array.from(shopifyPrices));
+
+        if (!priceInRange) {
+          console.log(`❌ STRICT Price validation failed: Price $${priceVal} not in Shopify catalog`);
+          console.log(`Available Shopify prices:`, Array.from(shopifyPrices).slice(0, 10));
           return false;
         }
+      }
+
+      // Rule 3: NEVER allow common hallucinated prices
+      const forbiddenPrices = [249, 549, 449, 349, 199, 299, 399, 499, 599, 649, 749, 849, 949];
+      if (forbiddenPrices.includes(Math.round(priceVal))) {
+        console.log(`❌ Blocked common hallucinated price: $${priceVal}`);
+        return false;
       }
       
       // Rule 3: Basic sanity checks for still prices
