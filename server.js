@@ -758,14 +758,30 @@ async function findCustomerByEmail(email) {
 app.post('/reply', async (req, res) => {
   const incomingPhone = req.body.phone || req.body.From;
   const incomingText = req.body.text || req.body.Body || '';
-  
-  if (!incomingPhone || incomingText === undefined) {
-    return res.status(400).json({ error: 'Missing phone or message text' });
+  const mediaUrl = req.body.MediaUrl || req.body.mediaUrl || '';
+
+  if (!incomingPhone) {
+    return res.status(400).json({ error: 'Missing phone number' });
   }
-  
+
   const phone = normalizePhoneNumber(incomingPhone);
-  const userMessage = incomingText.trim();
+  let userMessage = incomingText.trim();
   const timestamp = new Date();
+
+  // Handle image/media messages
+  if (mediaUrl && mediaUrl !== '') {
+    // Customer sent an image/media
+    if (userMessage === '' || userMessage.length < 5) {
+      userMessage = "I sent you a picture/image";
+    } else {
+      userMessage = userMessage + " (with attached image)";
+    }
+    await logEvent('info', `Received SMS with media from ${phone}: "${userMessage}" MediaURL: ${mediaUrl}`);
+  } else if (userMessage === '' || userMessage === undefined) {
+    // Empty message with no media
+    await logEvent('info', `Received empty SMS from ${phone} - ignoring`);
+    return res.status(204).send(); // No Content - ignore empty messages
+  }
 
   await logEvent('info', `Received SMS from ${phone}: "${userMessage}"`);
 
@@ -1119,8 +1135,14 @@ app.post('/reply', async (req, res) => {
       }
     }
 
-    // Add current user message
-    messages.push({ role: "user", content: userMessage });
+    // Add current user message - sanitize for Claude API
+    const sanitizedMessage = userMessage.replace(/[^\x20-\x7E\s]/g, '').trim(); // Remove non-printable characters
+    if (sanitizedMessage === '' && mediaUrl) {
+      // If message is empty but there's media, provide context
+      messages.push({ role: "user", content: "I sent you a picture/image" });
+    } else {
+      messages.push({ role: "user", content: sanitizedMessage || userMessage });
+    }
 
     // Call Claude API
     let aiResponse = null;
@@ -1132,13 +1154,35 @@ app.post('/reply', async (req, res) => {
         system: systemContent,
         messages: messages
       });
-      
+
       aiResponse = completion.content[0].text.trim();
+
+      // Handle image messages specially
+      if (mediaUrl && mediaUrl !== '') {
+        if (aiResponse && !aiResponse.toLowerCase().includes('picture') && !aiResponse.toLowerCase().includes('image')) {
+          aiResponse += "\n\nI see you sent a picture - I can't view images directly, but feel free to describe what you're showing me and I'll help however I can!";
+        }
+      }
+
     } catch (apiErr) {
       console.error("Claude API error:", apiErr);
-      await logEvent('error', `Claude API request failed for ${phone}: ${apiErr.message}`);
-      
-      const errorReply = "Sorry, I'm having trouble right now. Please call (603) 997-6786 for assistance.";
+      console.error("Error details:", {
+        phone,
+        userMessage: userMessage.substring(0, 100),
+        messageLength: userMessage.length,
+        hasMedia: !!mediaUrl,
+        sanitizedMessage: sanitizedMessage.substring(0, 100)
+      });
+      await logEvent('error', `Claude API request failed for ${phone}: ${apiErr.message} - Message: "${userMessage.substring(0, 50)}"`);
+
+      // Special handling for image messages
+      let errorReply;
+      if (mediaUrl && mediaUrl !== '') {
+        errorReply = "Thanks for the picture! I'm having trouble processing it right now. Can you describe what you're showing me? Or call (603) 997-6786 for direct assistance.";
+      } else {
+        errorReply = "Sorry, I'm having trouble right now. Please call (603) 997-6786 for assistance.";
+      }
+
       await pool.query(
         'INSERT INTO messages(phone, sender, message, timestamp) VALUES($1, $2, $3, $4)',
         [phone, 'assistant', errorReply, new Date()]
