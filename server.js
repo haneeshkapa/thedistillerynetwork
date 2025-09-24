@@ -1119,7 +1119,9 @@ app.post('/reply', async (req, res) => {
     });
 
     // Build system content using template with replacements
-    let systemContent = `Current date and time: ${currentDateTime}\n\n` + systemTemplate
+    let systemContent = `Current date and time: ${currentDateTime}\n\n` +
+      `🚫 CRITICAL: ONLY refer to information from THIS conversation's message history below. NEVER mention details, promises, or plans that are not explicitly stated in the message history for THIS phone number. Do not confabulate or assume previous interactions.\n\n` +
+      systemTemplate
       .replace('{PERSONALITY}', personalityText)
       .replace('{KNOWLEDGE}', knowledgeContent)
       .replace('{CUSTOMER_CONTEXT}', customerContext)
@@ -1389,7 +1391,8 @@ IMPORTANT: Use the specific order status and details above to provide accurate, 
     const dateContext = `\n\n⚠️ CURRENT DATE & TIME CONTEXT ⚠️\nRight now it is: ${currentDateTime}\nAlways use this current date and time for any date/time calculations or comparisons.\nDo not reference outdated information or incorrect dates/times.\n\n⚠️ CRITICAL ERROR PREVENTION ⚠️\n- If you make a mistake, acknowledge it immediately and correct it\n- Do not make up order information if you're unsure\n- Do not repeat incorrect information - fix it right away\n- If a customer corrects you, thank them and use the correct information\n- Stay consistent with dates and order details throughout the conversation\n`;
 
     // Build system content using template with replacements
-    let systemContent = systemTemplate
+    let systemContent = `🚫 CRITICAL: ONLY refer to information from THIS conversation's message history below. NEVER mention details, promises, or plans that are not explicitly stated in the message history for THIS phone number. Do not confabulate or assume previous interactions.\n\n` +
+      systemTemplate
       .replace('{PERSONALITY}', personalityText + dateContext)
       .replace('{KNOWLEDGE}', knowledgeContent)
       .replace('{CUSTOMER_CONTEXT}', customerContext)
