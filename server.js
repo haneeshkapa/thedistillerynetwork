@@ -117,14 +117,16 @@ if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
 let customerSheetDoc = null;
 let customerSheet = null;
 
-if (GOOGLE_SERVICE_ACCOUNT_EMAIL && GOOGLE_PRIVATE_KEY && GOOGLE_SHEET_ID) {
+// Create reusable auth object for initial connection and retries
+const googleAuth = GOOGLE_SERVICE_ACCOUNT_EMAIL && GOOGLE_PRIVATE_KEY ? {
+  client_email: GOOGLE_SERVICE_ACCOUNT_EMAIL,
+  private_key: GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n')
+} : null;
+
+if (googleAuth && GOOGLE_SHEET_ID) {
   customerSheetDoc = new GoogleSpreadsheet(GOOGLE_SHEET_ID);
-  const privateKey = GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n');
-  
-  customerSheetDoc.useServiceAccountAuth({
-    client_email: GOOGLE_SERVICE_ACCOUNT_EMAIL,
-    private_key: privateKey
-  }).then(() => customerSheetDoc.loadInfo())
+
+  customerSheetDoc.useServiceAccountAuth(googleAuth).then(() => customerSheetDoc.loadInfo())
     .then(() => {
       // Always use the Shopify sheet (index 1) - the master sheet
       customerSheet = customerSheetDoc.sheetsByIndex[1];
@@ -1709,7 +1711,7 @@ app.post('/api/system-instructions', async (req, res) => {
 app.get('/api/knowledge', async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT id, title, SUBSTRING(content, 1, 100) as snippet, source, created_at 
+      SELECT id, title, LEFT(content, 100) as snippet, source, created_at 
       FROM knowledge 
       ORDER BY created_at DESC
     `);
