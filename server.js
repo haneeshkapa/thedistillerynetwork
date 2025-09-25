@@ -1097,7 +1097,9 @@ app.post('/reply', async (req, res) => {
 
       const customerName = getCustomerData(customer, 'Name', 2) || getCustomerData(customer, 'Customer', 2);
       const customerEmail = getCustomerData(customer, 'Email', 0);
-      customerContext = `This is a known customer: ${customerName || 'Name not available'}\nEmail: ${customerEmail || 'Email not available'}`;
+      customerContext = `This is a known customer: ${customerName || 'Name not available'}\nEmail: ${customerEmail || 'Email not available'}
+
+🚫 CRITICAL: Do NOT make up specific order numbers, dates, expedited status, or tracking details unless you have explicit order information. If asked about order status, say "Let me check your order details" and offer to call back with specifics.`;
     } else {
       // This is NOT a customer from Google Sheets - respond as Jonathan without customer data
       const respondToAll = await isRespondToAllEnabled();
@@ -1374,7 +1376,12 @@ Customer Details from Database:
       customerContext = `This is a known customer with the following information:
 ${orderDetails}
 
-IMPORTANT: Use the specific order status and details above to provide accurate, personalized responses. If the order shows "shipped" or tracking info, tell them that. If it shows specific products or dates, reference those. Don't give generic timeline information when you have their actual data.`;
+🚫 CRITICAL ORDER DATA RULES:
+- ONLY reference order details if they are CLEARLY readable and specific in the data above
+- If order status shows "N/A" or unclear data, do NOT make up order numbers, dates, or status
+- Do NOT invent expedited status, specific dates, or order numbers unless explicitly clear in the data
+- If data is unclear, say "Let me check your order details for you" and offer to call back
+- NEVER make up timeline references like "before July 17th" or specific order numbers unless they appear clearly above`;
     }
     
     // Add current date and time context to prevent date/time confusion
