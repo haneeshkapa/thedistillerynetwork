@@ -134,6 +134,7 @@ if (googleAuth && GOOGLE_SHEET_ID) {
 
       if (customerSheet && customerSheet.title === targetSheetTitle) {
         console.log(`✅ Google Sheet "${targetSheetTitle}" tab loaded successfully`);
+        statusColumnIndexCache = null; // Reset cache when sheet is loaded
       } else if (customerSheet) {
         console.log(`⚠️ Using fallback sheet: ${customerSheet.title} (target was "${targetSheetTitle}")`);
       } else {
@@ -153,6 +154,7 @@ if (googleAuth && GOOGLE_SHEET_ID) {
           const targetSheetTitle = process.env.GOOGLE_SHEET_TAB_NAME || 'Shopify';
           customerSheet = customerSheetDoc.sheetsByTitle[targetSheetTitle] || customerSheetDoc.sheetsByIndex[1];
           console.log(`✅ Google Sheet loaded on retry: ${customerSheet ? customerSheet.title : 'NOT FOUND'}`);
+          statusColumnIndexCache = null; // Reset cache when sheet is reloaded
         } catch (retryErr) {
           console.error("❌ Google Sheets retry failed:", retryErr.message);
         }
@@ -394,6 +396,43 @@ function normalizePhoneNumber(phone) {
   }
   
   return digitsOnly;
+}
+
+// Cache for status column index to avoid repeated header lookups
+let statusColumnIndexCache = null;
+
+// Helper function to find status column index by header name
+function getStatusColumnIndex() {
+  if (statusColumnIndexCache !== null) {
+    return statusColumnIndexCache;
+  }
+
+  if (!customerSheet || !customerSheet.headerValues) {
+    console.warn('⚠️ No sheet headers available, using fallback status column index 4');
+    return 4; // Fallback to original hardcoded index
+  }
+
+  // Try common status header variations (with env var override)
+  const envStatusHeader = process.env.GOOGLE_SHEET_STATUS_COLUMN;
+  const statusHeaders = envStatusHeader ?
+    [envStatusHeader, 'Status', 'Order Status', 'status', 'ORDER STATUS', 'Shipping Status', 'Order State'] :
+    ['Status', 'Order Status', 'status', 'ORDER STATUS', 'Shipping Status', 'Order State'];
+  const headers = customerSheet.headerValues;
+
+  for (let i = 0; i < headers.length; i++) {
+    const header = headers[i];
+    if (statusHeaders.some(statusHeader =>
+      header && header.toString().toLowerCase().includes(statusHeader.toLowerCase())
+    )) {
+      console.log(`✅ Found status column "${header}" at index ${i}`);
+      statusColumnIndexCache = i;
+      return i;
+    }
+  }
+
+  console.warn(`⚠️ No status column found in headers: [${headers.slice(0, 10).join(', ')}], using fallback index 4`);
+  statusColumnIndexCache = 4; // Cache the fallback
+  return 4;
 }
 
 // Fallback in-memory cache for when Redis is unavailable
@@ -1006,14 +1045,15 @@ app.post('/reply', async (req, res) => {
         // Get cell background color to determine actual status
         let statusDescription = "Order received";
         let statusColor = "white"; // default
-        
+
         try {
-          // Load only specific cells to reduce memory usage  
+          // Load only specific cells to reduce memory usage
           const rowIndex = customer.googleRowIndex;
           await customerSheet.loadCells(`A${rowIndex}:J${rowIndex}`); // Load only the customer's row
-          
-          // Check the background color of the status cell (column 4, assuming 0-indexed)
-          const statusCell = customerSheet.getCell(rowIndex - 1, 4); // Adjust for 0-based indexing
+
+          // Find status column index by header name (more robust than hardcoded index)
+          const statusColIndex = getStatusColumnIndex();
+          const statusCell = customerSheet.getCell(rowIndex - 1, statusColIndex);
           if (statusCell && statusCell.backgroundColor) {
             const bgColor = statusCell.backgroundColor;
             
