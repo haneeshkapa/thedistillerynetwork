@@ -227,7 +227,8 @@ class EmailMonitor {
       }
 
       // Call our existing email processing endpoint
-      const response = await fetch('http://localhost:3000/email-notify', {
+      const apiBase = process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
+      const response = await fetch(`${apiBase}/email-notify`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

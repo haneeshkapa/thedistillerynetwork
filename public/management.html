@@ -658,7 +658,7 @@ document.getElementById('sync-shopify-btn').onclick = async () => {
     const syncTime = ((Date.now() - startTime) / 1000).toFixed(1);
     
     if (res.ok) {
-      statusEl.textContent = `✅ ${data.count || 0} products synced in ${syncTime}s`;
+      statusEl.textContent = `✅ ${data.totalSynced || 0} items synced in ${syncTime}s`;
       statusEl.style.color = '#28a745';
       loadKnowledge();
       loadStats();
@@ -699,7 +699,7 @@ async function loadEmailAlerts() {
       alertDiv.className = `email-alert`;
       
       const customerName = alert.customer_name || 'Unknown';
-      const receivedTime = formatTimestamp(alert.received_at);
+      const receivedTime = formatTimestamp(alert.timestamp);
       
       let headerHtml = `
         <div class="email-alert-header">

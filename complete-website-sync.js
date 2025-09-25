@@ -24,7 +24,7 @@ async function completeWebsiteSync(pool, SHOPIFY_STORE_DOMAIN) {
     console.log(`🌐 Syncing ALL content from ${websiteUrl}`);
     
     // Remove old website entries
-    await pool.query("DELETE FROM knowledge WHERE source='website' OR source='website-blog' OR source='website-page'");
+    await pool.query("DELETE FROM knowledge WHERE source IN ('website', 'website-blog', 'website-page', 'website-collection')");
     
     // 1. Parse sitemap to get all URLs
     console.log('🗺️ Fetching sitemap...');
@@ -213,9 +213,9 @@ async function completeWebsiteSync(pool, SHOPIFY_STORE_DOMAIN) {
           });
           
           if (productInfo.length > 0) {
-            await pool.query('INSERT INTO knowledge(title, content, source) VALUES($1, $2, $3)', 
+            await pool.query('INSERT INTO knowledge(title, content, source) VALUES($1, $2, $3)',
               [`Collection Products: ${title}`, productInfo.join('\n'), 'website-collection']);
-            syncResults.collections++;
+            // Don't increment collections here - already incremented when detecting collection page
           }
         }
         

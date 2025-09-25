@@ -552,13 +552,20 @@ const monitorMemory = async () => {
     console.log('⚠️ High memory usage detected, clearing fallback cache...');
     fallbackCache.clear();
     
-    // Clear Redis cache if available
+    // Clear Redis cache if available - use SCAN to avoid blocking
     if (redisClient) {
       try {
-        const keys = await redisClient.keys('customer:*');
-        if (keys.length > 0) {
-          await redisClient.del(keys);
-          console.log(`🗑️ Cleared ${keys.length} Redis cache entries`);
+        const pipeline = redisClient.multi();
+        let deletedCount = 0;
+
+        for await (const key of redisClient.scanIterator({ MATCH: 'customer:*', COUNT: 100 })) {
+          pipeline.del(key);
+          deletedCount++;
+        }
+
+        if (deletedCount > 0) {
+          await pipeline.exec();
+          console.log(`🗑️ Cleared ${deletedCount} Redis cache entries using SCAN`);
         }
       } catch (err) {
         console.error('Error clearing Redis cache:', err);
@@ -952,12 +959,12 @@ app.post('/reply', async (req, res) => {
         const orderDate = getCustomerData(customer, 'Created at', 3) || getCustomerData(customer, 'Order Date', 3);
         const totalPrice = getCustomerData(customer, 'Total', 4) || getCustomerData(customer, 'Price', 4);
         const email = getCustomerData(customer, 'Email', 5);
-        const phone = getCustomerData(customer, 'Phone', 6) || getCustomerData(customer, 'phone', 6);
+        const customerPhone = getCustomerData(customer, 'Phone', 6) || getCustomerData(customer, 'phone', 6);
         const shippingAddress = getCustomerData(customer, 'Shipping Address1', 7) || getCustomerData(customer, 'Address', 7);
         const shippingCity = getCustomerData(customer, 'Shipping City', 8) || getCustomerData(customer, 'City', 8);
         const shippingZip = getCustomerData(customer, 'Shipping Zip', 9) || getCustomerData(customer, 'Zip', 9);
-        
-        console.log(`📋 Order Info Extract for ${phone}:`);
+
+        console.log(`📋 Order Info Extract for ${phone} (customer phone: ${customerPhone}):`);
         console.log(`  Customer: ${customerName}`);
         console.log(`  Product: ${productOrdered}`);
         console.log(`  Order Date: ${orderDate}`);
