@@ -128,14 +128,16 @@ if (googleAuth && GOOGLE_SHEET_ID) {
 
   customerSheetDoc.useServiceAccountAuth(googleAuth).then(() => customerSheetDoc.loadInfo())
     .then(() => {
-      // Always use the Shopify sheet (index 1) - the master sheet
-      customerSheet = customerSheetDoc.sheetsByIndex[1];
-      if (customerSheet && customerSheet.title === 'Shopify') {
-        console.log(`✅ Google Sheet "Shopify" tab loaded: ${customerSheet.title}`);
+      // Find sheet by title for robustness (fallback to env var or index)
+      const targetSheetTitle = process.env.GOOGLE_SHEET_TAB_NAME || 'Shopify';
+      customerSheet = customerSheetDoc.sheetsByTitle[targetSheetTitle] || customerSheetDoc.sheetsByIndex[1];
+
+      if (customerSheet && customerSheet.title === targetSheetTitle) {
+        console.log(`✅ Google Sheet "${targetSheetTitle}" tab loaded successfully`);
       } else if (customerSheet) {
-        console.log(`⚠️ Using sheet at index 1: ${customerSheet.title} (expected Shopify)`);
+        console.log(`⚠️ Using fallback sheet: ${customerSheet.title} (target was "${targetSheetTitle}")`);
       } else {
-        console.error('❌ No sheet found at index 1');
+        console.error(`❌ No sheet found with title "${targetSheetTitle}" or at index 1`);
       }
     })
     .catch(err => {
@@ -147,8 +149,9 @@ if (googleAuth && GOOGLE_SHEET_ID) {
           console.log("🔄 Retrying Google Sheets connection...");
           await customerSheetDoc.useServiceAccountAuth(googleAuth);
           await customerSheetDoc.loadInfo();
-          // Always use Shopify sheet at index 1
-          customerSheet = customerSheetDoc.sheetsByIndex[1];
+          // Find sheet by title for robustness (same logic as initial load)
+          const targetSheetTitle = process.env.GOOGLE_SHEET_TAB_NAME || 'Shopify';
+          customerSheet = customerSheetDoc.sheetsByTitle[targetSheetTitle] || customerSheetDoc.sheetsByIndex[1];
           console.log(`✅ Google Sheet loaded on retry: ${customerSheet ? customerSheet.title : 'NOT FOUND'}`);
         } catch (retryErr) {
           console.error("❌ Google Sheets retry failed:", retryErr.message);
@@ -457,8 +460,19 @@ async function findCustomerByPhone(phone) {
   }
   
   try {
-    // Load all rows to ensure complete customer coverage 
-    const rows = await customerSheet.getRows({ limit: 1000, offset: 0 });
+    // Load all rows with pagination to ensure complete customer coverage
+    const allRows = [];
+    let offset = 0;
+    const batchSize = 1000;
+
+    while (true) {
+      const batch = await customerSheet.getRows({ limit: batchSize, offset });
+      if (batch.length === 0) break;
+      allRows.push(...batch);
+      if (batch.length < batchSize) break; // No more rows
+      offset += batchSize;
+    }
+
     const normalizedInputPhone = normalizePhoneNumber(phone);
     
     console.log(`🔍 Looking for phone: ${phone} -> normalized: ${normalizedInputPhone}`);
@@ -484,7 +498,7 @@ async function findCustomerByPhone(phone) {
       return row._rawData[6];
     }
     
-    rows.forEach((row, index) => {
+    allRows.forEach((row, index) => {
       const phoneField = getPhoneFromRow(row);
       if (!phoneField || foundCustomer) return;
       
@@ -734,9 +748,20 @@ async function findCustomerByEmail(email) {
   if (!customerSheet) return null;
   
   try {
-    const rows = await customerSheet.getRows({ limit: 1000, offset: 0 });
-    
-    for (const row of rows) {
+    // Load all rows with pagination to ensure complete customer coverage
+    const allRows = [];
+    let offset = 0;
+    const batchSize = 1000;
+
+    while (true) {
+      const batch = await customerSheet.getRows({ limit: batchSize, offset });
+      if (batch.length === 0) break;
+      allRows.push(...batch);
+      if (batch.length < batchSize) break; // No more rows
+      offset += batchSize;
+    }
+
+    for (const row of allRows) {
       const rowData = row._rawData;
       if (!rowData || rowData.length === 0) continue;
       
@@ -1828,14 +1853,17 @@ app.get('/debug/sheets', async (req, res) => {
       });
     }
     
-    const rows = await customerSheet.getRows();
+    // Get just the first few rows for debug info (don't need all rows)
+    const sampleRows = await customerSheet.getRows({ limit: 10, offset: 0 });
+    const totalRowsEstimate = customerSheet.rowCount || 'Unknown';
+
     res.json({
       connected: true,
       sheetTitle: customerSheet.title,
       sheetId: GOOGLE_SHEET_ID,
-      totalRows: rows.length,
+      totalRows: totalRowsEstimate,
       sampleHeaders: customerSheet.headerValues,
-      firstRowData: rows[0] ? rows[0]._rawData.slice(0, 5) : 'No data'
+      firstRowData: sampleRows[0] ? sampleRows[0]._rawData.slice(0, 5) : 'No data'
     });
   } catch (err) {
     res.json({ 

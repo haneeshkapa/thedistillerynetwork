@@ -23,15 +23,21 @@ class AdvancedKnowledgeRetriever {
       return [];
     }
     
-    // Use plainto_tsquery for full text search
-    const tsQuery = words.join(' | ');
-    
+    // Build proper OR query - sanitize tokens for to_tsquery
+    const sanitizedWords = words.map(word =>
+      word.replace(/[^\w]/g, '').toLowerCase()
+    ).filter(word => word.length > 0);
+
+    if (sanitizedWords.length === 0) return [];
+
+    const tsQuery = sanitizedWords.join(' | ');
+
     try {
       const result = await this.pool.query(
         `SELECT id, title, content,
-                ts_rank_cd(to_tsvector('english', content), plainto_tsquery('english', $1)) AS rank
+                ts_rank_cd(to_tsvector('english', content), to_tsquery('english', $1)) AS rank
          FROM knowledge
-         WHERE to_tsvector('english', content) @@ plainto_tsquery('english', $1)
+         WHERE to_tsvector('english', content) @@ to_tsquery('english', $1)
          ORDER BY rank DESC
          LIMIT $2`,
         [tsQuery, maxChunks]
