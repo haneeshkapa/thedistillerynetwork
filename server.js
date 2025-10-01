@@ -435,6 +435,61 @@ function getStatusColumnIndex() {
   return 4;
 }
 
+// Response validator to prevent AI hallucinations
+function validateAndSanitizeResponse(response, orderInfo = '', customer = null) {
+  if (!response) return response;
+
+  let validated = response;
+  let flagged = false;
+
+  // 1. Check for fabricated order numbers (SP-### patterns) not in orderInfo
+  const orderNumberPattern = /(order\s*#?\s*|#)\s*(sp-\d+|ms\d+|\d{3,6})/gi;
+  const orderMatches = validated.match(orderNumberPattern);
+  if (orderMatches) {
+    // Check if any order numbers are NOT in the actual orderInfo
+    const hasValidOrderRef = orderMatches.some(match =>
+      orderInfo && orderInfo.toLowerCase().includes(match.toLowerCase())
+    );
+    if (!hasValidOrderRef) {
+      flagged = true;
+      console.warn(`⚠️ Response validation: Blocked fabricated order number - ${orderMatches.join(', ')}`);
+    }
+  }
+
+  // 2. Check for specific date claims not in orderInfo
+  const datePattern = /(before|after|since|on|from)\s+(january|february|march|april|may|june|july|august|september|october|november|december|\d{1,2}\/\d{1,2}|\d{4})/gi;
+  const dateMatches = validated.match(datePattern);
+  if (dateMatches) {
+    const hasValidDateRef = dateMatches.some(match =>
+      orderInfo && orderInfo.toLowerCase().includes(match.toLowerCase())
+    );
+    if (!hasValidDateRef) {
+      flagged = true;
+      console.warn(`⚠️ Response validation: Blocked fabricated date reference - ${dateMatches.join(', ')}`);
+    }
+  }
+
+  // 3. Check for "expedited" without PURPLE status confirmation
+  const expeditePattern = /expedite|expedited|expediting/gi;
+  if (expeditePattern.test(validated)) {
+    // Only allow if we have explicit expedited status (would need status color context)
+    // For now, flag all expedited claims unless specifically verified
+    const hasValidExpediteStatus = orderInfo && orderInfo.toLowerCase().includes('expedit');
+    if (!hasValidExpediteStatus) {
+      flagged = true;
+      console.warn(`⚠️ Response validation: Blocked unverified expedited claim`);
+    }
+  }
+
+  // If flagged, replace with safe fallback
+  if (flagged) {
+    console.log(`🚫 Response validation triggered - replacing with safe fallback`);
+    return "Let me check your order details and get back to you shortly. Please call (603) 997-6786 if you need immediate assistance.";
+  }
+
+  return validated;
+}
+
 // Fallback in-memory cache for when Redis is unavailable
 const fallbackCache = new Map();
 const CACHE_DURATION = 5 * 60; // 5 minutes in seconds
@@ -1022,8 +1077,11 @@ app.post('/reply', async (req, res) => {
         const customerEmail = getCustomerData(customer, 'Email', 0);
         const productOrdered = getCustomerData(customer, 'Product', 1) || getCustomerData(customer, 'LineItem name', 1);
         const customerName = getCustomerData(customer, 'Name', 2) || getCustomerData(customer, 'Customer', 2);
-        const orderDate = getCustomerData(customer, 'Created at', 3) || getCustomerData(customer, 'Order Date', 3);
+        const orderDate = getCustomerData(customer, 'Created at', 3) || getCustomerData(customer, 'Order Date', 3) || getCustomerData(customer, 'Date', 3);
         const totalPrice = getCustomerData(customer, 'Total', 4) || getCustomerData(customer, 'Price', 4);
+
+        // Flag for missing date information
+        const hasOrderDate = Boolean(orderDate && orderDate.trim() && orderDate !== 'N/A');
         const email = getCustomerData(customer, 'Email', 5);
         const customerPhone = getCustomerData(customer, 'Phone', 6) || getCustomerData(customer, 'phone', 6);
         const shippingAddress = getCustomerData(customer, 'Shipping Address1', 7) || getCustomerData(customer, 'Address', 7);
@@ -1049,11 +1107,33 @@ app.post('/reply', async (req, res) => {
         try {
           // Load only specific cells to reduce memory usage
           const rowIndex = customer.googleRowIndex;
-          await customerSheet.loadCells(`A${rowIndex}:J${rowIndex}`); // Load only the customer's row
 
-          // Find status column index by header name (more robust than hardcoded index)
-          const statusColIndex = getStatusColumnIndex();
-          const statusCell = customerSheet.getCell(rowIndex - 1, statusColIndex);
+          // Make color column configurable and expandable
+          const colorColumnIndex = process.env.GOOGLE_SHEET_COLOR_COLUMN ?
+            parseInt(process.env.GOOGLE_SHEET_COLOR_COLUMN) : getStatusColumnIndex();
+          const maxColumnIndex = Math.max(10, colorColumnIndex + 1); // Ensure we include the color column
+          const columnLetter = String.fromCharCode(65 + maxColumnIndex - 1); // Convert to letter (A=0, B=1, etc.)
+
+          await customerSheet.loadCells(`A${rowIndex}:${columnLetter}${rowIndex}`);
+          console.log(`📋 Loading cells A${rowIndex}:${columnLetter}${rowIndex} for status check`);
+
+          // Since entire row is colored for status, read from first few columns to detect row color
+          // Try multiple columns since the whole row should have the same background color
+          let statusCell = null;
+          let statusColIndex = 0;
+
+          // Try columns A through F to find one with background color (since whole row is colored)
+          for (let colIndex = 0; colIndex < 6; colIndex++) {
+            const testCell = customerSheet.getCell(rowIndex - 1, colIndex);
+            if (testCell && testCell.backgroundColor) {
+              statusCell = testCell;
+              statusColIndex = colIndex;
+              break;
+            }
+          }
+
+          // Log the cell position and color for audit
+          console.log(`🎨 Row color detected from Column ${statusColIndex} (${String.fromCharCode(65 + statusColIndex)}) at Row ${rowIndex}`);
           if (statusCell && statusCell.backgroundColor) {
             const bgColor = statusCell.backgroundColor;
             
@@ -1061,7 +1141,10 @@ app.post('/reply', async (req, res) => {
             const red = bgColor.red || 0;
             const green = bgColor.green || 0;
             const blue = bgColor.blue || 0;
-            
+
+            // Log RGB values for audit
+            console.log(`🎨 RGB values for ${phone}: R=${red.toFixed(3)} G=${green.toFixed(3)} B=${blue.toFixed(3)}`);
+
             // Map colors to status descriptions based on your color coding system
             if (red > 0.9 && green < 0.3 && blue < 0.3) {
               // Red - Customer wants to cancel
@@ -1092,6 +1175,9 @@ app.post('/reply', async (req, res) => {
               statusDescription = "Order just received (WHITE)";
               statusColor = "white";
             }
+
+            // Log the final mapped status for audit
+            console.log(`🎨 Mapped status for ${phone}: ${statusColor.toUpperCase()} = ${statusDescription}`);
           }
         } catch (colorError) {
           console.error('Error reading cell colors:', colorError);
@@ -1100,8 +1186,12 @@ app.post('/reply', async (req, res) => {
         
         orderInfo = `\n\nCUSTOMER ORDER INFORMATION:\n`;
         orderInfo += `Customer: ${customerName}\n`;
-        if (orderId) orderInfo += `Order ID: ${orderId}\n`;
-        if (orderDate) orderInfo += `Order Date: ${orderDate}\n`;
+        // Note: Internal row reference ${orderId} - DO NOT mention to customer unless they have a real order number
+        if (hasOrderDate) {
+          orderInfo += `Order Date: ${orderDate}\n`;
+        } else {
+          orderInfo += `⚠️ ORDER DATE NOT AVAILABLE - Do not guess or estimate dates. If asked about order dates, say "Let me check your order date and get back to you."\n`;
+        }
         if (productOrdered) orderInfo += `Product Ordered: ${productOrdered}\n`;
         orderInfo += `Current Status: ${statusDescription}\n`;
         if (trackingInfo) orderInfo += `Email/Tracking: ${trackingInfo}\n`;
@@ -1282,9 +1372,17 @@ app.post('/reply', async (req, res) => {
 
     // Enforce conversation continuity (remove greetings from follow-up messages)
     if (conversationHistory.length > 0) {
-      aiResponse = aiResponse.replace(/^hey there[,!]*\s*/i, '')
-                             .replace(/^hey\s+[A-Za-z]+[,!]*\s*/i, '');
+      aiResponse = aiResponse
+                             .replace(/^hey( there)?[,!]*\s*/i, '')
+                             .replace(/^hi[,!]*\s*/i, '')
+                             .replace(/^hello[,!]*\s*/i, '')
+                             .replace(/^good (morning|afternoon|evening)[,!]*\s*/i, '')
+                             .replace(/^hey\s+[A-Za-z]+[,!]*\s*/i, '')
+                             .replace(/^hi\s+[A-Za-z]+[,!]*\s*/i, '');
     }
+
+    // Response validator to block timeline/number hallucinations
+    aiResponse = validateAndSanitizeResponse(aiResponse, orderInfo, customer);
 
     // Save assistant's response
     await pool.query(
