@@ -1630,7 +1630,7 @@ ${orderDetails}
 
     // Call Claude API
     const completion = await anthropicClient.messages.create({
-      model: 'claude-3-opus-20240229',
+      model: 'claude-3-haiku-20240307',
       max_tokens: 200,
       temperature: 0.7,
       system: systemContent,
