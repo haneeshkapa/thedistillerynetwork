@@ -54,6 +54,12 @@ const pool = new Pool({
   query_timeout: 20000            // Query timeout - increased for slow queries
 });
 
+// Add error handler to pool to prevent crashes
+pool.on('error', (err, client) => {
+  console.error('❌ Unexpected database pool error:', err);
+  // Don't crash the app on pool errors
+});
+
 // Initialize Redis client
 let redisClient = null;
 if (REDIS_URL) {
@@ -543,21 +549,22 @@ async function setCachedCustomer(cacheKey, customer) {
 // Helper function to find customer by phone in Google Sheets
 async function findCustomerByPhone(phone) {
   if (!customerSheet) return null;
-  
+
   const normalizedPhone = normalizePhoneNumber(phone);
   const cacheKey = normalizedPhone;
-  
+
   // Check cache first
   const cached = await getCachedCustomer(cacheKey);
   if (cached) {
     return cached;
   }
-  
+
   try {
     // Load all rows with pagination to ensure complete customer coverage
+    // Reduced batch size to prevent memory issues on free hosting
     const allRows = [];
     let offset = 0;
-    const batchSize = 1000;
+    const batchSize = 500; // Reduced from 1000 to 500
 
     while (true) {
       const batch = await customerSheet.getRows({ limit: batchSize, offset });
@@ -565,6 +572,12 @@ async function findCustomerByPhone(phone) {
       allRows.push(...batch);
       if (batch.length < batchSize) break; // No more rows
       offset += batchSize;
+
+      // Add memory check and early exit if too many rows
+      if (allRows.length > 5000) {
+        console.warn(`⚠️ Sheet has too many rows (${allRows.length}+), limiting to first 5000 for memory`);
+        break;
+      }
     }
 
     const normalizedInputPhone = normalizePhoneNumber(phone);
@@ -840,12 +853,13 @@ app.post('/email-notify', async (req, res) => {
 // Helper function to find customer by email address
 async function findCustomerByEmail(email) {
   if (!customerSheet) return null;
-  
+
   try {
     // Load all rows with pagination to ensure complete customer coverage
+    // Reduced batch size to prevent memory issues on free hosting
     const allRows = [];
     let offset = 0;
-    const batchSize = 1000;
+    const batchSize = 500; // Reduced from 1000 to 500
 
     while (true) {
       const batch = await customerSheet.getRows({ limit: batchSize, offset });
@@ -853,6 +867,12 @@ async function findCustomerByEmail(email) {
       allRows.push(...batch);
       if (batch.length < batchSize) break; // No more rows
       offset += batchSize;
+
+      // Add memory check and early exit if too many rows
+      if (allRows.length > 5000) {
+        console.warn(`⚠️ Sheet has too many rows (${allRows.length}+), limiting to first 5000 for memory`);
+        break;
+      }
     }
 
     for (const row of allRows) {
@@ -1316,7 +1336,7 @@ app.post('/reply', async (req, res) => {
     let aiResponse = null;
     try {
       const completion = await anthropicClient.messages.create({
-        model: 'claude-3-5-sonnet-20241022',
+        model: 'claude-3-5-sonnet-20240620',
         max_tokens: 200, // Reduced from 300 to save processing time
         temperature: 0.7,
         system: systemContent,
@@ -1339,9 +1359,15 @@ app.post('/reply', async (req, res) => {
         userMessage: userMessage.substring(0, 100),
         messageLength: userMessage.length,
         hasMedia: !!mediaUrl,
-        sanitizedMessage: sanitizedMessage.substring(0, 100)
+        sanitizedMessage: sanitizedMessage.substring(0, 100),
+        statusCode: apiErr.status,
+        errorType: apiErr.error?.type,
+        errorMessage: apiErr.error?.message
       });
-      await logEvent('error', `Claude API request failed for ${phone}: ${apiErr.message} - Message: "${userMessage.substring(0, 50)}"`);
+
+      // Log detailed error for debugging
+      const errorDetail = `Claude API error: ${apiErr.status || 'unknown'} - ${apiErr.error?.type || 'unknown'} - ${apiErr.error?.message || apiErr.message}`;
+      await logEvent('error', `Claude API request failed for ${phone}: ${errorDetail} - Message: "${userMessage.substring(0, 50)}"`);
 
       // Special handling for image messages
       let errorReply;
@@ -1351,10 +1377,19 @@ app.post('/reply', async (req, res) => {
         errorReply = "Sorry, I'm having trouble right now. Please call (603) 997-6786 for assistance.";
       }
 
-      await pool.query(
-        'INSERT INTO messages(phone, sender, message, timestamp) VALUES($1, $2, $3, $4)',
-        [phone, 'assistant', errorReply, new Date()]
-      );
+      // Add retry logic for transient errors
+      if (apiErr.status === 429 || apiErr.status === 503 || apiErr.status === 502) {
+        errorReply = "I'm experiencing high load right now. Please try again in a moment or call (603) 997-6786 for immediate assistance.";
+      }
+
+      try {
+        await pool.query(
+          'INSERT INTO messages(phone, sender, message, timestamp) VALUES($1, $2, $3, $4)',
+          [phone, 'assistant', errorReply, new Date()]
+        );
+      } catch (dbErr) {
+        console.error('Failed to log error message to database:', dbErr);
+      }
       return res.status(200).type('text/plain').send(errorReply);
     }
 
@@ -1595,7 +1630,7 @@ ${orderDetails}
 
     // Call Claude API
     const completion = await anthropicClient.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
+      model: 'claude-3-5-sonnet-20240620',
       max_tokens: 200,
       temperature: 0.7,
       system: systemContent,
@@ -2080,24 +2115,51 @@ app.post('/api/respond-all-toggle', async (req, res) => {
   }
 });
 
+// Global error handlers to prevent crashes
+process.on('uncaughtException', (err) => {
+  console.error('❌ Uncaught Exception:', err);
+  console.error('Stack:', err.stack);
+  // Don't exit - log and continue to prevent total server crash
+  logEvent('error', `Uncaught exception: ${err.message}`).catch(console.error);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise);
+  console.error('Reason:', reason);
+  // Don't exit - log and continue to prevent total server crash
+  logEvent('error', `Unhandled rejection: ${reason}`).catch(console.error);
+});
+
 // Start server after initializing database
 initDatabase().then(() => {
   const server = app.listen(PORT, () => {
     console.log(`✅ SMS bot server listening on port ${PORT}`);
     console.log(`🥃 Jonathan's Distillation Bot server is ready!`);
-    
+
     // Start email monitoring if email transporter is configured
     if (emailTransporter) {
       console.log('📧 Starting email monitor...');
       const emailMonitor = new EmailMonitor();
       emailMonitor.start();
-      
+
       // Graceful shutdown
       process.on('SIGTERM', () => {
         console.log('📧 Stopping email monitor...');
         emailMonitor.stop();
+
+        // Close database connections gracefully
+        pool.end().catch(err => console.error('Error closing pool:', err));
+        if (redisClient) {
+          redisClient.quit().catch(err => console.error('Error closing Redis:', err));
+        }
       });
     }
+  });
+
+  // Handle server errors
+  server.on('error', (err) => {
+    console.error('❌ Server error:', err);
+    logEvent('error', `Server error: ${err.message}`).catch(console.error);
   });
 
 }).catch(err => {
