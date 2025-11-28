@@ -1336,7 +1336,7 @@ app.post('/reply', async (req, res) => {
     let aiResponse = null;
     try {
       const completion = await anthropicClient.messages.create({
-        model: 'claude-3-opus-20240229',
+        model: 'claude-3-haiku-20240307',
         max_tokens: 200, // Reduced from 300 to save processing time
         temperature: 0.7,
         system: systemContent,
