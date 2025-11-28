@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>DIAGRAM 12: Component #5 - Hybrid Retrieval Engine</title>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            themeVariables: {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                primaryColor: '#bbdefb',
+                secondaryColor: '#c8e6c9',
+                tertiaryColor: '#ffe0b2',
+            }
+        });
+    </script>
+    <style>
+        body {
+            margin: 40px;
+            background: white;
+            font-family: Arial, sans-serif;
+            max-width: 1400px;
+        }
+        h1 {
+            text-align: center;
+            color: #1976D2;
+            margin-bottom: 40px;
+            font-size: 28px;
+        }
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            background: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>DIAGRAM 12: Component #5 - Hybrid Retrieval Engine</h1>
+    <div class="mermaid">
+
+graph TB
+    Query["Customer Query:<br/>'Where is my order #12345?'"] --> Split
+
+    Split --> Lexical
+    Split --> Semantic
+
+    subgraph Lexical["Lexical Search (BM25)"]
+        BM25["BM25 Algorithm<br/>k1=1.5, b=0.75<br/>Term frequency + IDF"]
+        BM25 --> LexResults["Top 50 Results<br/>Keyword matches<br/>Great for: order#, SKU, exact terms"]
+    end
+
+    subgraph Semantic["Semantic Search (Vector)"]
+        Embed["Embed Query<br/>text-embedding-3-small<br/>1536 dimensions"]
+        Embed --> VectorDB["pgvector<br/>Cosine similarity search"]
+        VectorDB --> SemResults["Top 50 Results<br/>Meaning matches<br/>Great for: intent, synonyms"]
+    end
+
+    LexResults --> Combine["Combine & Deduplicate<br/>Union by document ID"]
+    SemResults --> Combine
+
+    Combine --> MMR
+
+    subgraph MMR["MMR Re-ranking"]
+        Rerank["Maximal Marginal Relevance<br/>λ=0.7 (70% relevance, 30% diversity)<br/>Reduce redundancy"]
+        Rerank --> TopK["Select Top 10<br/>Diverse + Relevant"]
+    end
+
+    TopK --> Performance
+
+    subgraph Performance["Performance Results"]
+        P1["Precision: 94%<br/>(vs 78% single method)"]
+        P2["Recall: 89%<br/>(vs 71% single method)"]
+        P3["F1 Score: 91.4%<br/>(vs 74% single method)"]
+    end
+
+    style Lexical fill:#bbdefb,stroke:#1976d2,stroke-width:3px
+    style Semantic fill:#c8e6c9,stroke:#388e3c,stroke-width:3px
+    style MMR fill:#e1bee7,stroke:#7b1fa2,stroke-width:3px
+    style P1 fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+    style P2 fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+    style P3 fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+
+    </div>
+</body>
+</html>

@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>DIAGRAM 18: Component #11 - Redis Cache</title>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            themeVariables: {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                primaryColor: '#bbdefb',
+                secondaryColor: '#c8e6c9',
+                tertiaryColor: '#ffe0b2',
+            }
+        });
+    </script>
+    <style>
+        body {
+            margin: 40px;
+            background: white;
+            font-family: Arial, sans-serif;
+            max-width: 1400px;
+        }
+        h1 {
+            text-align: center;
+            color: #1976D2;
+            margin-bottom: 40px;
+            font-size: 28px;
+        }
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            background: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>DIAGRAM 18: Component #11 - Redis Cache</h1>
+    <div class="mermaid">
+
+graph TB
+    Requests["Application Requests"] --> Redis
+
+    subgraph Redis["Redis 7.0 Cluster"]
+        Master["Master Node<br/>Writes + Reads"]
+        Replica1["Replica Node 1<br/>Reads"]
+        Replica2["Replica Node 2<br/>Reads + Failover"]
+    end
+
+    Master --> Replica1
+    Master --> Replica2
+
+    Redis --> CacheTypes
+
+    subgraph CacheTypes["Cache Strategies"]
+        Session["Session Data<br/>Key: customer:{phone}<br/>TTL: 1 hour<br/>Active conversations"]
+        Query["Query Results<br/>Key: query:{hash}<br/>TTL: 5 minutes<br/>Recent searches"]
+        API["API Responses<br/>Key: api:{endpoint}:{params}<br/>TTL: 30 seconds<br/>External API cache"]
+    end
+
+    CacheTypes --> Stats
+
+    subgraph Stats["Performance Impact"]
+        S1["Cache Hit Rate: 87%"]
+        S2["Avg Hit Latency: 2.3ms"]
+        S3["Throughput: 100K ops/sec"]
+        S4["Memory: 2GB for 1M sessions"]
+        S5["DB Load Reduction: 95%"]
+    end
+
+    style Master fill:#ffccbc,stroke:#d84315,stroke-width:3px
+    style Replica1 fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
+    style Replica2 fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
+    style Session fill:#bbdefb,stroke:#1976d2,stroke-width:2px
+    style Query fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style API fill:#e1bee7,stroke:#7b1fa2,stroke-width:2px
+    style S1 fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+    style S2 fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+    style S3 fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+    style S4 fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+    style S5 fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+
+    </div>
+</body>
+</html>

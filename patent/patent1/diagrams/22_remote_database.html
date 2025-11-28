@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>DIAGRAM 22: What is the Remote Database? (John's Question)</title>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            themeVariables: {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                primaryColor: '#bbdefb',
+                secondaryColor: '#c8e6c9',
+                tertiaryColor: '#ffe0b2',
+            }
+        });
+    </script>
+    <style>
+        body {
+            margin: 40px;
+            background: white;
+            font-family: Arial, sans-serif;
+            max-width: 1400px;
+        }
+        h1 {
+            text-align: center;
+            color: #1976D2;
+            margin-bottom: 40px;
+            font-size: 28px;
+        }
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            background: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>DIAGRAM 22: What is the Remote Database? (John's Question)</h1>
+    <div class="mermaid">
+
+graph TB
+    Question["❓ WHAT IS THE<br/>REMOTE DATABASE?"] --> Answer
+
+    subgraph Answer["The Remote Database IS"]
+        Cloud["☁️ Cloud-Hosted Database<br/>PostgreSQL + Redis<br/>Running on AWS"]
+
+        Cloud --> Components
+
+        subgraph Components["Components"]
+            PG["PostgreSQL<br/>• Customer data<br/>• Message history<br/>• Order information<br/>• Knowledge base<br/>• Analytics data"]
+            Redis["Redis Cache<br/>• Session data<br/>• Query results<br/>• API responses<br/>• Hot data"]
+            Sheets["Google Sheets<br/>• Business logic<br/>• Color-coded rules<br/>• Team-editable"]
+        end
+    end
+
+    Components --> Why
+
+    subgraph Why["Why 'Remote'?"]
+        W1["Located in cloud<br/>not on device"]
+        W2["Accessible from anywhere<br/>not just one phone"]
+        W3["Centralized data<br/>single source of truth"]
+        W4["Scalable storage<br/>unlimited capacity"]
+    end
+
+    Why --> Benefits
+
+    subgraph Benefits["Benefits"]
+        B1["✓ Phone can break<br/>Data is safe"]
+        B2["✓ Multiple devices<br/>Share same knowledge"]
+        B3["✓ Real-time sync<br/>Always up-to-date"]
+        B4["✓ Business intelligence<br/>Analytics & reporting"]
+    end
+
+    style Cloud fill:#bbdefb,stroke:#1976d2,stroke-width:3px
+    style PG fill:#ffe0b2,stroke:#f57c00,stroke-width:3px
+    style Redis fill:#ffccbc,stroke:#d84315,stroke-width:3px
+    style Sheets fill:#c8e6c9,stroke:#388e3c,stroke-width:3px
+    style W1 fill:#e1bee7,stroke:#7b1fa2,stroke-width:2px
+    style W2 fill:#e1bee7,stroke:#7b1fa2,stroke-width:2px
+    style W3 fill:#e1bee7,stroke:#7b1fa2,stroke-width:2px
+    style W4 fill:#e1bee7,stroke:#7b1fa2,stroke-width:2px
+    style B1 fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style B2 fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style B3 fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style B4 fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+
+    </div>
+</body>
+</html>

@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>DIAGRAM 2: Cost & Performance Comparison</title>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            themeVariables: {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                primaryColor: '#bbdefb',
+                secondaryColor: '#c8e6c9',
+                tertiaryColor: '#ffe0b2',
+            }
+        });
+    </script>
+    <style>
+        body {
+            margin: 40px;
+            background: white;
+            font-family: Arial, sans-serif;
+            max-width: 1400px;
+        }
+        h1 {
+            text-align: center;
+            color: #1976D2;
+            margin-bottom: 40px;
+            font-size: 28px;
+        }
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            background: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>DIAGRAM 2: Cost & Performance Comparison</h1>
+    <div class="mermaid">
+
+graph LR
+    subgraph Metrics[" "]
+        direction TB
+        M1["💰 COST<br/>Twilio: $0.015<br/>Simbridge: $0.001<br/>SAVINGS: 93%"]
+        M2["⚡ LATENCY<br/>Twilio: 3-4 sec<br/>Simbridge: 1.2-1.8 sec<br/>FASTER: 50%"]
+        M3["🔒 DATA SOVEREIGNTY<br/>Twilio: Third-party sees all<br/>Simbridge: 100% control<br/>PRIVACY: Complete"]
+        M4["📋 SETUP<br/>Twilio: 10DLC registration<br/>Simbridge: 5-min install<br/>EASIER: 10x"]
+    end
+
+    style M1 fill:#c8e6c9,stroke:#388e3c,stroke-width:3px
+    style M2 fill:#bbdefb,stroke:#1976d2,stroke-width:3px
+    style M3 fill:#e1bee7,stroke:#7b1fa2,stroke-width:3px
+    style M4 fill:#ffe0b2,stroke:#f57c00,stroke-width:3px
+
+    </div>
+</body>
+</html>

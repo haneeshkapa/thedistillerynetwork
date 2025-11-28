@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>DIAGRAM 3: What is Tasker? (John's Question)</title>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            themeVariables: {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                primaryColor: '#bbdefb',
+                secondaryColor: '#c8e6c9',
+                tertiaryColor: '#ffe0b2',
+            }
+        });
+    </script>
+    <style>
+        body {
+            margin: 40px;
+            background: white;
+            font-family: Arial, sans-serif;
+            max-width: 1400px;
+        }
+        h1 {
+            text-align: center;
+            color: #1976D2;
+            margin-bottom: 40px;
+            font-size: 28px;
+        }
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            background: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>DIAGRAM 3: What is Tasker? (John's Question)</h1>
+    <div class="mermaid">
+
+graph TB
+    Q["❓ WHO IS TASKER?<br/>CAN WE REPLACE IT?"] --> Answer
+
+    subgraph Answer[" "]
+        T1["TASKER APP<br/>by João Dias<br/>$3.49 one-time<br/>5M+ downloads"]
+
+        T1 --> Features
+
+        subgraph Features["What Tasker Does"]
+            F1["✓ OS-level SMS intercept<br/>BroadcastReceiver API"]
+            F2["✓ HTTP requests<br/>POST to cloud server"]
+            F3["✓ Android automation<br/>Scripts & triggers"]
+        end
+
+        Features --> Options
+
+        subgraph Options["Can We Replace It?"]
+            O1["Option 1: Custom Android App<br/>✓ Full control<br/>✗ $10K-50K dev cost"]
+            O2["Option 2: Other automation apps<br/>⚠️ Less mature, similar issues"]
+            O3["Option 3: Keep Tasker ✅<br/>✓ Proven & reliable<br/>✓ $3.49 total cost<br/>✓ Focus on core business"]
+        end
+    end
+
+    style T1 fill:#bbdefb,stroke:#1976d2,stroke-width:3px
+    style F1 fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style F2 fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style F3 fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style O1 fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
+    style O2 fill:#ffccbc,stroke:#ff5722,stroke-width:2px
+    style O3 fill:#c8e6c9,stroke:#388e3c,stroke-width:3px
+
+    </div>
+</body>
+</html>

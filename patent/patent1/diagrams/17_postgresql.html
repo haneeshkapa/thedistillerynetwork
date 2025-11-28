@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>DIAGRAM 17: Component #10 - PostgreSQL Database</title>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            themeVariables: {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                primaryColor: '#bbdefb',
+                secondaryColor: '#c8e6c9',
+                tertiaryColor: '#ffe0b2',
+            }
+        });
+    </script>
+    <style>
+        body {
+            margin: 40px;
+            background: white;
+            font-family: Arial, sans-serif;
+            max-width: 1400px;
+        }
+        h1 {
+            text-align: center;
+            color: #1976D2;
+            margin-bottom: 40px;
+            font-size: 28px;
+        }
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            background: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>DIAGRAM 17: Component #10 - PostgreSQL Database</h1>
+    <div class="mermaid">
+
+graph TB
+    App[Application] --> PG
+
+    subgraph PG["PostgreSQL 15"]
+        T1["messages table<br/>id, sender, body, timestamp,<br/>response, status"]
+        T2["customers table<br/>id, phone, name,<br/>last_order, preferences"]
+        T3["orders table<br/>id, customer_id, status,<br/>items, total"]
+        T4["knowledge_docs table<br/>id, content, embedding,<br/>category, updated_at"]
+        T5["api_logs table<br/>id, endpoint, duration_ms,<br/>status_code, timestamp"]
+        T6["cache_metadata table<br/>key, value, ttl,<br/>hit_count, created_at"]
+    end
+
+    PG --> Features
+
+    subgraph Features["Optimizations"]
+        F1["Indexes on:<br/>phone, order_id, timestamp"]
+        F2["JSONB columns<br/>Flexible schemas"]
+        F3["Connection pooling<br/>50 concurrent connections"]
+        F4["pgvector extension<br/>Vector similarity search"]
+    end
+
+    PG --> Backup
+
+    subgraph Backup["High Availability"]
+        Primary["Primary Instance<br/>db.t3.large (2 vCPU, 8GB)"]
+        Replica1["Read Replica 1<br/>Query distribution"]
+        Replica2["Read Replica 2<br/>Failover backup"]
+        S3["S3 Backups<br/>Daily snapshots"]
+    end
+
+    style T1 fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
+    style T2 fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
+    style T3 fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
+    style T4 fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
+    style T5 fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
+    style T6 fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
+    style Features fill:#c8e6c9,stroke:#388e3c,stroke-width:3px
+    style Backup fill:#bbdefb,stroke:#1976d2,stroke-width:3px
+
+    </div>
+</body>
+</html>

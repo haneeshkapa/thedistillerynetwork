@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>HYBRID RETRIEVAL ENGINE</title>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            themeVariables: {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif'
+            }
+        });
+    </script>
+    <style>
+        body {
+            margin: 40px;
+            background: white;
+            font-family: Arial, sans-serif;
+        }
+        h1 {
+            text-align: center;
+            color: #1976D2;
+            margin-bottom: 40px;
+        }
+        .mermaid {
+            display: flex;
+            justify-content: center;
+        }
+    </style>
+</head>
+<body>
+    <h1>HYBRID RETRIEVAL ENGINE</h1>
+    <div class="mermaid">
+
+graph TB
+    Query[Customer Query] --> BM25
+    Query --> Semantic
+
+    subgraph Lexical["Lexical Search"]
+        BM25["BM25 Algorithm<br/>k1=1.5, b=0.75"] --> BM25Results["Top 50<br/>keyword matches"]
+    end
+
+    subgraph Vector["Semantic Search"]
+        Semantic["Embed Query<br/>(text-embedding-3-small)"] --> VectorSearch["Cosine Similarity<br/>Vector DB"]
+        VectorSearch --> SemResults["Top 50<br/>semantic matches"]
+    end
+
+    BM25Results --> Combine[Combine & Deduplicate]
+    SemResults --> Combine
+    Combine --> MMR["MMR Re-ranking<br/>λ=0.7<br/>(diversity vs relevance)"]
+    MMR --> Final["Top 10 Results<br/>94% accuracy"]
+
+    style BM25 fill:#bbdefb,stroke:#1976d2,stroke-width:3px
+    style Semantic fill:#c8e6c9,stroke:#388e3c,stroke-width:3px
+    style MMR fill:#e1bee7,stroke:#7b1fa2,stroke-width:3px
+    style Final fill:#ffe0b2,stroke:#f57c00,stroke-width:3px
+    style Lexical fill:#e3f2fd
+    style Vector fill:#f1f8e9
+
+    </div>
+</body>
+</html>

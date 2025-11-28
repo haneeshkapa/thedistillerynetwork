@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>DIAGRAM 28: Deployment Architecture (Cloud Infrastructure)</title>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            themeVariables: {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                primaryColor: '#bbdefb',
+                secondaryColor: '#c8e6c9',
+                tertiaryColor: '#ffe0b2',
+            }
+        });
+    </script>
+    <style>
+        body {
+            margin: 40px;
+            background: white;
+            font-family: Arial, sans-serif;
+            max-width: 1400px;
+        }
+        h1 {
+            text-align: center;
+            color: #1976D2;
+            margin-bottom: 40px;
+            font-size: 28px;
+        }
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            background: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>DIAGRAM 28: Deployment Architecture (Cloud Infrastructure)</h1>
+    <div class="mermaid">
+
+graph TB
+    Internet["Internet"] --> LB
+
+    subgraph AWS["AWS us-east-1"]
+        LB["Load Balancer<br/>NGINX<br/>SSL termination"]
+
+        LB --> API1
+        LB --> API2
+        LB --> API3
+
+        API1["API Server 1<br/>t3.medium<br/>2 vCPU, 4GB RAM"]
+        API2["API Server 2<br/>t3.medium<br/>2 vCPU, 4GB RAM"]
+        API3["API Server 3<br/>t3.medium<br/>2 vCPU, 4GB RAM"]
+
+        API1 --> Redis
+        API2 --> Redis
+        API3 --> Redis
+
+        Redis["Redis Cluster<br/>3 nodes, 6GB total"]
+
+        Redis --> PG
+
+        PG["PostgreSQL<br/>db.t3.large<br/>2 vCPU, 8GB RAM"]
+        PG --> Replica1["Read Replica 1"]
+        PG --> Replica2["Read Replica 2"]
+
+        API1 -.-> S3
+        API2 -.-> S3
+        API3 -.-> S3
+
+        S3["S3 Storage<br/>Logs, backups,<br/>embeddings"]
+
+        Queue["Worker Queue<br/>Bull + Redis<br/>Background jobs"]
+
+        API1 --> Queue
+        API2 --> Queue
+        API3 --> Queue
+    end
+
+    subgraph Cost["💰 Monthly Cost"]
+        C1["API Servers: $72<br/>(3 × t3.medium)"]
+        C2["Database: $145<br/>(1 primary + 2 replicas)"]
+        C3["Redis: $85<br/>(3-node cluster)"]
+        C4["Load Balancer: $25"]
+        C5["S3 + misc: $123"]
+        Total["TOTAL: ~$450/month<br/>Handles 100K msgs/day"]
+    end
+
+    style LB fill:#ffccbc,stroke:#d84315,stroke-width:3px
+    style API1 fill:#bbdefb,stroke:#1976d2,stroke-width:2px
+    style API2 fill:#bbdefb,stroke:#1976d2,stroke-width:2px
+    style API3 fill:#bbdefb,stroke:#1976d2,stroke-width:2px
+    style Redis fill:#ffe0b2,stroke:#f57c00,stroke-width:3px
+    style PG fill:#e1bee7,stroke:#7b1fa2,stroke-width:3px
+    style Queue fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style Total fill:#fff9c4,stroke:#f57f17,stroke-width:3px
+
+    </div>
+</body>
+</html>

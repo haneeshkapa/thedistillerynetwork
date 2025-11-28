@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>DIAGRAM 10: Component #3 - Memory Store (3-Tier Caching)</title>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            themeVariables: {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                primaryColor: '#bbdefb',
+                secondaryColor: '#c8e6c9',
+                tertiaryColor: '#ffe0b2',
+            }
+        });
+    </script>
+    <style>
+        body {
+            margin: 40px;
+            background: white;
+            font-family: Arial, sans-serif;
+            max-width: 1400px;
+        }
+        h1 {
+            text-align: center;
+            color: #1976D2;
+            margin-bottom: 40px;
+            font-size: 28px;
+        }
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            background: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>DIAGRAM 10: Component #3 - Memory Store (3-Tier Caching)</h1>
+    <div class="mermaid">
+
+graph TB
+    Query["Query"] --> L1
+
+    subgraph L1Cache["L1: In-Memory Cache"]
+        L1["node-cache LRU<br/>Latency: <1ms<br/>Capacity: 1000 entries<br/>TTL: 5 minutes"]
+    end
+
+    L1 -->|Hit 67%| Response1["✓ Response"]
+    L1 -->|Miss 33%| L2
+
+    subgraph L2Cache["L2: Redis Cache"]
+        L2["Redis 7.0 Cluster<br/>Latency: 1-5ms<br/>Capacity: 1M entries<br/>TTL: 1 hour"]
+    end
+
+    L2 -->|Hit 25%| Response2["✓ Response<br/>+ update L1"]
+    L2 -->|Miss 8%| L3
+
+    subgraph L3Cache["L3: PostgreSQL"]
+        L3["PostgreSQL 15<br/>Latency: 10-50ms<br/>Capacity: Unlimited<br/>TTL: Permanent"]
+    end
+
+    L3 -->|Hit 7%| Response3["✓ Response<br/>+ update L2 & L1"]
+    L3 -->|Miss 1%| Fetch["Fetch from Source<br/>+ cache in all tiers"]
+
+    subgraph Stats["Performance Impact"]
+        S1["Cache Hit Rate: 87%"]
+        S2["Avg Latency: 2.3ms"]
+        S3["DB Load: ↓95%"]
+    end
+
+    style L1 fill:#bbdefb,stroke:#1976d2,stroke-width:3px
+    style L2 fill:#ffe0b2,stroke:#f57c00,stroke-width:3px
+    style L3 fill:#e1bee7,stroke:#7b1fa2,stroke-width:3px
+    style Response1 fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style Response2 fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style Response3 fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style S1 fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+    style S2 fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+    style S3 fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+
+    </div>
+</body>
+</html>

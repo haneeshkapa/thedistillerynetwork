@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>DIAGRAM 30: Patent Claims Summary</title>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            themeVariables: {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                primaryColor: '#bbdefb',
+                secondaryColor: '#c8e6c9',
+                tertiaryColor: '#ffe0b2',
+            }
+        });
+    </script>
+    <style>
+        body {
+            margin: 40px;
+            background: white;
+            font-family: Arial, sans-serif;
+            max-width: 1400px;
+        }
+        h1 {
+            text-align: center;
+            color: #1976D2;
+            margin-bottom: 40px;
+            font-size: 28px;
+        }
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            background: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>DIAGRAM 30: Patent Claims Summary</h1>
+    <div class="mermaid">
+
+graph TB
+    Patent["📜 SIMBRIDGE PATENT"] --> Claims
+
+    subgraph Claims["Primary Patent Claim"]
+        Claim["Method and system for device-native<br/>enterprise messaging automation"]
+
+        Claim --> C1
+        Claim --> C2
+        Claim --> C3
+        Claim --> C4
+        Claim --> C5
+
+        C1["(a) OS-level SMS interception<br/>using BroadcastReceiver (priority 999)"]
+        C2["(b) Encrypted HTTPS transmission<br/>without SMS gateway"]
+        C3["(c) Hybrid retrieval<br/>BM25 + Semantic + MMR + 3-tier cache"]
+        C4["(d) LLM response generation<br/>with guardrails & business rules"]
+        C5["(e) Direct device SMS transmission<br/>via Android API"]
+    end
+
+    Claims --> Dependent
+
+    subgraph Dependent["Dependent Claims"]
+        D1["Color-code business logic<br/>Google Sheets RGB parsing"]
+        D2["Multi-tier caching<br/>L1 → L2 → L3 adaptive TTL"]
+        D3["Hybrid retrieval accuracy<br/>94% vs 78% single method"]
+        D4["Guardrails system<br/>99.7% safe response rate"]
+    end
+
+    Dependent --> Impact
+
+    subgraph Impact["Commercial Impact"]
+        I1["💰 Market: $29B by 2030"]
+        I2["🎯 Target: 500K SMBs"]
+        I3["💵 Value: $48K/year savings"]
+        I4["📊 Deployment: 45K msgs/month<br/>at Moonshine Stills"]
+    end
+
+    Impact --> Moat
+
+    subgraph Moat["Competitive Moat"]
+        M1["Technical: OS-level access"]
+        M2["Economic: 10x cost advantage"]
+        M3["Data: Complete sovereignty"]
+        M4["Legal: 3 core patent innovations"]
+    end
+
+    style Claims fill:#fff9c4,stroke:#f57f17,stroke-width:4px
+    style C1 fill:#bbdefb,stroke:#1976d2,stroke-width:2px
+    style C2 fill:#bbdefb,stroke:#1976d2,stroke-width:2px
+    style C3 fill:#bbdefb,stroke:#1976d2,stroke-width:2px
+    style C4 fill:#bbdefb,stroke:#1976d2,stroke-width:2px
+    style C5 fill:#bbdefb,stroke:#1976d2,stroke-width:2px
+    style Dependent fill:#c8e6c9,stroke:#388e3c,stroke-width:3px
+    style Impact fill:#ffe0b2,stroke:#f57c00,stroke-width:3px
+    style Moat fill:#ffccbc,stroke:#d84315,stroke-width:4px
+
+    </div>
+</body>
+</html>

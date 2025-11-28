@@ -29,6 +29,7 @@ app.use(express.static('public'));
 // Load environment variables
 const {
   ANTHROPIC_API_KEY,
+  ANTHROPIC_MODEL = 'claude-3-haiku-20240307', // Stable default model
   GOOGLE_SERVICE_ACCOUNT_EMAIL,
   GOOGLE_PRIVATE_KEY,
   GOOGLE_SHEET_ID,
@@ -1336,7 +1337,7 @@ app.post('/reply', async (req, res) => {
     let aiResponse = null;
     try {
       const completion = await anthropicClient.messages.create({
-        model: 'claude-3-haiku-20240307',
+        model: ANTHROPIC_MODEL,
         max_tokens: 200, // Reduced from 300 to save processing time
         temperature: 0.7,
         system: systemContent,
@@ -1630,7 +1631,7 @@ ${orderDetails}
 
     // Call Claude API
     const completion = await anthropicClient.messages.create({
-      model: 'claude-3-haiku-20240307',
+      model: ANTHROPIC_MODEL,
       max_tokens: 200,
       temperature: 0.7,
       system: systemContent,

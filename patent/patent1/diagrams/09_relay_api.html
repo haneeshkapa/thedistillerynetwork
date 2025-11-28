@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>DIAGRAM 9: Component #2 - Secure Relay API</title>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            themeVariables: {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                primaryColor: '#bbdefb',
+                secondaryColor: '#c8e6c9',
+                tertiaryColor: '#ffe0b2',
+            }
+        });
+    </script>
+    <style>
+        body {
+            margin: 40px;
+            background: white;
+            font-family: Arial, sans-serif;
+            max-width: 1400px;
+        }
+        h1 {
+            text-align: center;
+            color: #1976D2;
+            margin-bottom: 40px;
+            font-size: 28px;
+        }
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            background: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>DIAGRAM 9: Component #2 - Secure Relay API</h1>
+    <div class="mermaid">
+
+graph TB
+    Request["Incoming Request<br/>from Tasker"] --> Auth
+
+    subgraph Auth["Authentication Layer"]
+        JWT["Validate JWT Bearer Token"]
+        Device["Verify Device ID"]
+        Rate["Rate Limiting<br/>100 req/min per device"]
+    end
+
+    Auth --> Validation
+
+    subgraph Validation["Request Validation"]
+        Schema["Joi Schema Validation<br/>sender, body, timestamp"]
+        Sanitize["Input Sanitization<br/>XSS, SQL injection prevention"]
+    end
+
+    Validation --> Routing
+
+    subgraph Routing["Intelligent Routing"]
+        Type["Determine message type"]
+        Priority["Assign priority queue"]
+        Route["Route to correct pipeline"]
+    end
+
+    Routing --> Processing["Pass to Memory Store"]
+
+    Auth -.->|Fail| Reject["❌ 401 Unauthorized"]
+    Validation -.->|Fail| BadReq["❌ 400 Bad Request"]
+    Rate -.->|Exceed| Throttle["❌ 429 Too Many Requests"]
+
+    style Auth fill:#ffccbc,stroke:#d84315,stroke-width:3px
+    style Validation fill:#ffe0b2,stroke:#f57c00,stroke-width:3px
+    style Routing fill:#c8e6c9,stroke:#388e3c,stroke-width:3px
+    style Processing fill:#bbdefb,stroke:#1976d2,stroke-width:3px
+    style Reject fill:#ef9a9a,stroke:#c62828,stroke-width:2px
+    style BadReq fill:#ef9a9a,stroke:#c62828,stroke-width:2px
+    style Throttle fill:#ef9a9a,stroke:#c62828,stroke-width:2px
+
+    </div>
+</body>
+</html>

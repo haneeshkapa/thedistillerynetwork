@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>DIAGRAM 20: Security Architecture (Multi-Layer Defense)</title>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            themeVariables: {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                primaryColor: '#bbdefb',
+                secondaryColor: '#c8e6c9',
+                tertiaryColor: '#ffe0b2',
+            }
+        });
+    </script>
+    <style>
+        body {
+            margin: 40px;
+            background: white;
+            font-family: Arial, sans-serif;
+            max-width: 1400px;
+        }
+        h1 {
+            text-align: center;
+            color: #1976D2;
+            margin-bottom: 40px;
+            font-size: 28px;
+        }
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            background: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>DIAGRAM 20: Security Architecture (Multi-Layer Defense)</h1>
+    <div class="mermaid">
+
+graph TB
+    subgraph Device["📱 Device Layer"]
+        D1["Tasker credentials encrypted"]
+        D2["Device authentication token"]
+        D3["HTTPS only, no plain HTTP"]
+    end
+
+    Device --> Transport
+
+    subgraph Transport["🔒 Transport Layer"]
+        T1["TLS 1.3 encryption"]
+        T2["Certificate pinning"]
+        T3["Encrypted payload"]
+    end
+
+    Transport --> API
+
+    subgraph API["🛡️ API Layer"]
+        A1["JWT validation (RS256)"]
+        A2["Rate limiting per device"]
+        A3["IP whitelist optional"]
+    end
+
+    API --> App
+
+    subgraph App["🔐 Application Layer"]
+        AP1["Input sanitization"]
+        AP2["SQL injection prevention"]
+        AP3["XSS protection"]
+    end
+
+    App --> Data
+
+    subgraph Data["💾 Data Layer"]
+        DA1["Encryption at rest (AES-256)"]
+        DA2["PII masking in logs"]
+        DA3["Access control (RBAC)"]
+    end
+
+    Data --> Monitor
+
+    subgraph Monitor["👁️ Monitoring Layer"]
+        M1["Intrusion detection (IDS)"]
+        M2["Anomaly alerts"]
+        M3["Audit logging (immutable)"]
+    end
+
+    Monitor --> Result["✅ SECURITY RESULT<br/>Zero security breaches<br/>SOC 2 compliant<br/>GDPR ready<br/>Pen-test passed"]
+
+    style Device fill:#ffccbc,stroke:#d84315,stroke-width:3px
+    style Transport fill:#ff99 bc,stroke:#d84315,stroke-width:3px
+    style API fill:#ffe0b2,stroke:#f57c00,stroke-width:3px
+    style App fill:#fff9c4,stroke:#f57f17,stroke-width:3px
+    style Data fill:#c8e6c9,stroke:#388e3c,stroke-width:3px
+    style Monitor fill:#bbdefb,stroke:#1976d2,stroke-width:3px
+    style Result fill:#c8e6c9,stroke:#2e7d32,stroke-width:4px
+
+    </div>
+</body>
+</html>

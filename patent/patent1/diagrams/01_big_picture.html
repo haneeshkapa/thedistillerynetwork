@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>DIAGRAM 1: Traditional vs Simbridge</title>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            themeVariables: {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                primaryColor: '#bbdefb',
+                secondaryColor: '#c8e6c9',
+                tertiaryColor: '#ffe0b2',
+            }
+        });
+    </script>
+    <style>
+        body {
+            margin: 40px;
+            background: white;
+            font-family: Arial, sans-serif;
+            max-width: 1400px;
+        }
+        h1 {
+            text-align: center;
+            color: #1976D2;
+            margin-bottom: 40px;
+            font-size: 28px;
+        }
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            background: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>DIAGRAM 1: Traditional vs Simbridge</h1>
+    <div class="mermaid">
+
+graph TB
+    subgraph Traditional["TRADITIONAL (Twilio) - $0.015/interaction"]
+        T1[Customer] -->|SMS| T2[Carrier Network]
+        T2 --> T3["🚨 TWILIO GATEWAY<br/>$0.0075 per message<br/>Third-party sees data"]
+        T3 -->|API| T4[Your Server]
+        T4 -->|API| T5["🚨 TWILIO GATEWAY<br/>$0.0075 per message"]
+        T5 --> T6[Carrier Network]
+        T6 -->|SMS| T7[Customer]
+    end
+
+    subgraph Simbridge["SIMBRIDGE - $0.001/interaction (93% savings)"]
+        S1[Customer] -->|SMS| S2[Carrier Network]
+        S2 --> S3["📱 TASKER on Phone<br/>OS-level intercept<br/>$0 gateway cost"]
+        S3 -->|HTTPS Direct| S4["☁️ Your Cloud Server<br/>Complete data control<br/>AI processing"]
+        S4 -->|HTTPS Direct| S5["📱 TASKER sends SMS<br/>Direct to carrier"]
+        S5 --> S6[Carrier Network]
+        S6 -->|SMS| S7[Customer]
+    end
+
+    style T3 fill:#ffcccc,stroke:#d32f2f,stroke-width:3px
+    style T5 fill:#ffcccc,stroke:#d32f2f,stroke-width:3px
+    style S3 fill:#c8e6c9,stroke:#388e3c,stroke-width:3px
+    style S4 fill:#c8e6c9,stroke:#388e3c,stroke-width:3px
+    style S5 fill:#c8e6c9,stroke:#388e3c,stroke-width:3px
+    style Traditional fill:#fff5f5
+    style Simbridge fill:#f5fff5
+
+    </div>
+</body>
+</html>

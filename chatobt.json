@@ -1,0 +1,653 @@
+{
+    "name": "Tenant Chatbot SaaS Template",
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "incoming-message",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "name": "Incoming Message Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [0, 0],
+        "webhookId": "XXXXXXXXXXXXXXXXXXXX",
+        "id": "XXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "parameters": {
+          "functionCode": "const item = items[0];\nif (item.json.From) {\n  item.json.phone = item.json.From;\n}\nif (item.json.Body) {\n  item.json.text = item.json.Body;\n}\nif (item.json.MediaUrl) {\n  item.json.mediaUrl = item.json.MediaUrl;\n}\nreturn [item];"
+        },
+        "name": "Normalize Input",
+        "type": "n8n-nodes-base.function",
+        "typeVersion": 1,
+        "position": [200, 0],
+        "id": "XXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "parameters": {
+          "url": "https://your-tenant-backend.com/reply",
+          "method": "POST",
+          "jsonParameters": true,
+          "options": {
+            "timeout": 30000,
+            "fullResponse": true
+          },
+          "bodyParametersJson": {
+            "phone": "={{ $json[\"phone\"] }}",
+            "text": "={{ $json[\"text\"] }}",
+            "mediaUrl": "={{ $json[\"mediaUrl\"] }}"
+          }
+        },
+        "name": "Forward to Backend /reply",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4,
+        "position": [400, 0],
+        "id": "XXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "number": [
+              {
+                "value1": "={{ $json[\"statusCode\"] }}",
+                "operation": "equal",
+                "value2": 204
+              }
+            ]
+          }
+        },
+        "name": "If 204 No Reply",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 1,
+        "position": [600, 0],
+        "id": "XXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "number": [
+              {
+                "value1": "={{ $json[\"statusCode\"] }}",
+                "operation": "largerEqual",
+                "value2": 500
+              },
+              {
+                "value1": "={{ $json[\"statusCode\"] }}",
+                "operation": "equal",
+                "value2": 408
+              }
+            ],
+            "combineOperation": "any"
+          }
+        },
+        "name": "If Fallback Needed",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 1,
+        "position": [800, 100],
+        "id": "XXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "parameters": {
+          "respondWith": "noData",
+          "options": {
+            "responseCode": 204
+          }
+        },
+        "name": "Respond No Reply",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1,
+        "position": [800, -100],
+        "id": "XXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "{\"reply\": \"Sorry, I'm having trouble right now. Please try again later.\"}",
+          "options": {
+            "responseCode": 200
+          }
+        },
+        "name": "Respond Fallback",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1,
+        "position": [1000, 0],
+        "id": "XXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ { reply: $node[\"Forward to Backend /reply\"].json[\"body\"][\"replyText\"] || $node[\"Forward to Backend /reply\"].json[\"body\"][\"text\"] } }}",
+          "options": {
+            "responseCode": 200
+          }
+        },
+        "name": "Respond Reply",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1,
+        "position": [1000, 200],
+        "id": "XXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "parameters": {},
+        "name": "Manual Trigger (Google Sheets Sync)",
+        "type": "n8n-nodes-base.manualTrigger",
+        "typeVersion": 1,
+        "position": [0, 300],
+        "id": "XXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "parameters": {
+          "operation": "read",
+          "sheetId": "<YOUR_GOOGLE_SHEET_ID>",
+          "range": "Customers!A:Z",
+          "authentication": "serviceAccount",
+          "email": "your-service-account@your-project.iam.gserviceaccount.com",
+          "privateKey": "-----BEGIN PRIVATE KEY-----\\nYOUR_PRIVATE_KEY\\n-----END PRIVATE KEY-----"
+        },
+        "name": "Google Sheets - Read Customer List",
+        "type": "n8n-nodes-base.googleSheets",
+        "typeVersion": 4,
+        "position": [200, 300],
+        "id": "XXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "parameters": {
+          "functionCode": "const data = items.map(item => item.json);\nconst requests = [];\n// The sheet tab ID (numeric) for the \"Customers\" sheet. If this is the first sheet in the spreadsheet, its ID is likely 0.\nconst sheetId = 0;\n// Determine the index of the status column by header name (assuming first row is header).\nlet statusColIndex = 1;\nif (data.length > 0) {\n  const keys = Object.keys(data[0]);\n  const statusKeyIndex = keys.findIndex(k => k.toLowerCase().includes('status'));\n  if (statusKeyIndex !== -1) {\n    statusColIndex = statusKeyIndex;\n  }\n}\n// Build formatting requests for each row (skip header row at index 0).\nfor (let i = 0; i < data.length; i++) {\n  const row = data[i];\n  const statusValue = row.Status || row.status || row.STATUS || row.statusValue;\n  // Default no fill (white)\n  let color = { red: 1, green: 1, blue: 1 };\n  if (statusValue) {\n    const val = String(statusValue).toLowerCase();\n    if (val === 'active') {\n      color = { red: 0.8, green: 1, blue: 0.8 };\n    } else if (val === 'inactive') {\n      color = { red: 1, green: 0.8, blue: 0.8 };\n    } else if (val === 'pending') {\n      color = { red: 1, green: 1, blue: 0.5 };\n    }\n  }\n  requests.push({\n    repeatCell: {\n      range: {\n        sheetId: sheetId,\n        startRowIndex: i + 1,\n        endRowIndex: i + 2,\n        startColumnIndex: statusColIndex,\n        endColumnIndex: statusColIndex + 1\n      },\n      cell: {\n        userEnteredFormat: {\n          backgroundColor: color\n        }\n      },\n      fields: 'userEnteredFormat.backgroundColor'\n    }\n  });\n}\nreturn [{ json: { requests } }];"
+        },
+        "name": "Prepare Color Update",
+        "type": "n8n-nodes-base.function",
+        "typeVersion": 1,
+        "position": [400, 300],
+        "id": "XXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "parameters": {
+          "url": "https://sheets.googleapis.com/v4/spreadsheets/<YOUR_GOOGLE_SHEET_ID>:batchUpdate",
+          "method": "POST",
+          "jsonParameters": true,
+          "options": {},
+          "bodyParametersJson": "={{ $node[\"Prepare Color Update\"].json }}",
+          "headers": {
+            "Authorization": "Bearer <YOUR_ACCESS_TOKEN>"
+          }
+        },
+        "name": "Google Sheets - Color Code Update",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4,
+        "position": [600, 300],
+        "id": "XXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "parameters": {},
+        "name": "Manual Trigger (Update AI Personality)",
+        "type": "n8n-nodes-base.manualTrigger",
+        "typeVersion": 1,
+        "position": [0, 600],
+        "id": "XXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "parameters": {
+          "values": {
+            "string": [
+              {
+                "name": "personality",
+                "value": "AI should respond in a friendly, helpful tone."
+              }
+            ]
+          },
+          "options": {}
+        },
+        "name": "Set Personality Data",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 2,
+        "position": [200, 600],
+        "id": "XXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "parameters": {
+          "url": "https://your-tenant-backend.com/api/personality",
+          "method": "POST",
+          "jsonParameters": true,
+          "options": {},
+          "bodyParametersJson": {
+            "personality": "={{ $node[\"Set Personality Data\"].json[\"personality\"] }}"
+          }
+        },
+        "name": "Update AI Personality",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4,
+        "position": [400, 600],
+        "id": "XXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "parameters": {},
+        "name": "Manual Trigger (Update System Instructions)",
+        "type": "n8n-nodes-base.manualTrigger",
+        "typeVersion": 1,
+        "position": [0, 800],
+        "id": "XXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "parameters": {
+          "values": {
+            "string": [
+              {
+                "name": "instructions",
+                "value": "Provide brief responses unless more detail is requested."
+              }
+            ]
+          },
+          "options": {}
+        },
+        "name": "Set System Instructions Data",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 2,
+        "position": [200, 800],
+        "id": "XXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "parameters": {
+          "url": "https://your-tenant-backend.com/api/system-instructions",
+          "method": "POST",
+          "jsonParameters": true,
+          "options": {},
+          "bodyParametersJson": {
+            "instructions": "={{ $node[\"Set System Instructions Data\"].json[\"instructions\"] }}"
+          }
+        },
+        "name": "Update System Instructions",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4,
+        "position": [400, 800],
+        "id": "XXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "parameters": {},
+        "name": "Manual Trigger (Add Knowledge Base Entry)",
+        "type": "n8n-nodes-base.manualTrigger",
+        "typeVersion": 1,
+        "position": [0, 1000],
+        "id": "XXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "parameters": {
+          "values": {
+            "string": [
+              {
+                "name": "title",
+                "value": "Sample FAQ Question"
+              },
+              {
+                "name": "content",
+                "value": "This is the answer or content for the knowledge base entry."
+              }
+            ]
+          },
+          "options": {}
+        },
+        "name": "Set Knowledge Entry Data",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 2,
+        "position": [200, 1000],
+        "id": "XXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "parameters": {
+          "url": "https://your-tenant-backend.com/api/knowledge",
+          "method": "POST",
+          "jsonParameters": true,
+          "options": {},
+          "bodyParametersJson": {
+            "title": "={{ $node[\"Set Knowledge Entry Data\"].json[\"title\"] }}",
+            "content": "={{ $node[\"Set Knowledge Entry Data\"].json[\"content\"] }}"
+          }
+        },
+        "name": "Add Knowledge Base Entry",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4,
+        "position": [400, 1000],
+        "id": "XXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "parameters": {
+          "triggerTimes": {
+            "hour": 0,
+            "minute": 0
+          }
+        },
+        "name": "Cron (Shopify Sync)",
+        "type": "n8n-nodes-base.cron",
+        "typeVersion": 1,
+        "position": [0, 1200],
+        "id": "XXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "parameters": {
+          "url": "https://your-tenant-backend.com/api/sync-shopify",
+          "method": "POST",
+          "options": {}
+        },
+        "name": "Trigger Shopify Sync",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4,
+        "position": [200, 1200],
+        "id": "XXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "parameters": {},
+        "name": "Manual Trigger (Toggle AI)",
+        "type": "n8n-nodes-base.manualTrigger",
+        "typeVersion": 1,
+        "position": [0, 1400],
+        "id": "XXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "parameters": {
+          "url": "https://your-tenant-backend.com/api/ai-toggle",
+          "method": "POST"
+        },
+        "name": "Toggle AI Mode",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4,
+        "position": [200, 1400],
+        "id": "XXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "parameters": {},
+        "name": "Manual Trigger (Toggle Respond-All)",
+        "type": "n8n-nodes-base.manualTrigger",
+        "typeVersion": 1,
+        "position": [0, 1500],
+        "id": "XXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "parameters": {
+          "url": "https://your-tenant-backend.com/api/respond-all-toggle",
+          "method": "POST"
+        },
+        "name": "Toggle Respond-All Mode",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4,
+        "position": [200, 1500],
+        "id": "XXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "parameters": {},
+        "name": "Manual Trigger (Check AI Status)",
+        "type": "n8n-nodes-base.manualTrigger",
+        "typeVersion": 1,
+        "position": [0, 1600],
+        "id": "XXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "parameters": {
+          "url": "https://your-tenant-backend.com/api/ai-status",
+          "method": "GET"
+        },
+        "name": "Check AI Status",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4,
+        "position": [200, 1600],
+        "id": "XXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "parameters": {},
+        "name": "Manual Trigger (Check Respond-All Status)",
+        "type": "n8n-nodes-base.manualTrigger",
+        "typeVersion": 1,
+        "position": [0, 1700],
+        "id": "XXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "parameters": {
+          "url": "https://your-tenant-backend.com/api/respond-all-status",
+          "method": "GET"
+        },
+        "name": "Check Respond-All Status",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4,
+        "position": [200, 1700],
+        "id": "XXXXXXXXXXXXXXXXXXXX"
+      }
+    ],
+    "connections": {
+      "Incoming Message Webhook": {
+        "main": [
+          [
+            {
+              "node": "Normalize Input",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Normalize Input": {
+        "main": [
+          [
+            {
+              "node": "Forward to Backend /reply",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Forward to Backend /reply": {
+        "main": [
+          [
+            {
+              "node": "If 204 No Reply",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ],
+        "error": [
+          [
+            {
+              "node": "Respond Fallback",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "If 204 No Reply": {
+        "main": [
+          [
+            {
+              "node": "Respond No Reply",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "If Fallback Needed",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "If Fallback Needed": {
+        "main": [
+          [
+            {
+              "node": "Respond Fallback",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Respond Reply",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Manual Trigger (Google Sheets Sync)": {
+        "main": [
+          [
+            {
+              "node": "Google Sheets - Read Customer List",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Google Sheets - Read Customer List": {
+        "main": [
+          [
+            {
+              "node": "Prepare Color Update",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Prepare Color Update": {
+        "main": [
+          [
+            {
+              "node": "Google Sheets - Color Code Update",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Manual Trigger (Update AI Personality)": {
+        "main": [
+          [
+            {
+              "node": "Set Personality Data",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Set Personality Data": {
+        "main": [
+          [
+            {
+              "node": "Update AI Personality",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Manual Trigger (Update System Instructions)": {
+        "main": [
+          [
+            {
+              "node": "Set System Instructions Data",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Set System Instructions Data": {
+        "main": [
+          [
+            {
+              "node": "Update System Instructions",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Manual Trigger (Add Knowledge Base Entry)": {
+        "main": [
+          [
+            {
+              "node": "Set Knowledge Entry Data",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Set Knowledge Entry Data": {
+        "main": [
+          [
+            {
+              "node": "Add Knowledge Base Entry",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Cron (Shopify Sync)": {
+        "main": [
+          [
+            {
+              "node": "Trigger Shopify Sync",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Manual Trigger (Toggle AI)": {
+        "main": [
+          [
+            {
+              "node": "Toggle AI Mode",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Manual Trigger (Toggle Respond-All)": {
+        "main": [
+          [
+            {
+              "node": "Toggle Respond-All Mode",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Manual Trigger (Check AI Status)": {
+        "main": [
+          [
+            {
+              "node": "Check AI Status",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Manual Trigger (Check Respond-All Status)": {
+        "main": [
+          [
+            {
+              "node": "Check Respond-All Status",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "active": false,
+    "settings": {},
+    "id": "XXXXXXXXXXXXXXXX"
+  }
+  

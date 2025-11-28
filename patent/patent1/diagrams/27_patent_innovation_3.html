@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>DIAGRAM 27: Patent Innovation #3 - Color-Code Business Logic</title>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            themeVariables: {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                primaryColor: '#bbdefb',
+                secondaryColor: '#c8e6c9',
+                tertiaryColor: '#ffe0b2',
+            }
+        });
+    </script>
+    <style>
+        body {
+            margin: 40px;
+            background: white;
+            font-family: Arial, sans-serif;
+            max-width: 1400px;
+        }
+        h1 {
+            text-align: center;
+            color: #1976D2;
+            margin-bottom: 40px;
+            font-size: 28px;
+        }
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            background: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>DIAGRAM 27: Patent Innovation #3 - Color-Code Business Logic</h1>
+    <div class="mermaid">
+
+graph TB
+    subgraph Prior["Prior Art"]
+        P1["Business Logic in Code<br/>Requires developers"]
+        P2["Rigid Rules<br/>Deploy to change"]
+        P3["Technical Bottleneck<br/>Slow iterations"]
+    end
+
+    Prior --> Problem["❌ PROBLEM<br/>Non-technical team<br/>can't update rules"]
+
+    Problem --> Innovation
+
+    subgraph Innovation["✨ SIMBRIDGE INNOVATION"]
+        Sheets["Google Sheets<br/>Business data source"]
+        Parser["RGB Color Parser<br/>backgroundColor values"]
+        Mapping["State Mapping<br/>🟢 GREEN = In Production<br/>🟡 YELLOW = Awaiting Payment<br/>🔴 RED = Issue<br/>⚪ WHITE = Complete<br/>🔵 BLUE = Custom"]
+        Semantic["Semantic Representation<br/>'Order #12345 is IN_PRODUCTION'"]
+
+        Sheets --> Parser --> Mapping --> Semantic
+    end
+
+    Semantic --> Patent["📜 PATENT CLAIM<br/>Method for visual business logic<br/>using spreadsheet cell colors<br/>parsed as AI behavior rules"]
+
+    Patent --> Benefits
+
+    subgraph Benefits["Business Impact"]
+        B1["✓ Operations team control<br/>No developer needed"]
+        B2["✓ Zero-code deployments<br/>Update color, instant effect"]
+        B3["✓ Intuitive interface<br/>Visual = easy"]
+        B4["✓ 60-second sync<br/>Near real-time"]
+    end
+
+    style Prior fill:#ffcccc,stroke:#d32f2f,stroke-width:2px
+    style Problem fill:#ef9a9a,stroke:#c62828,stroke-width:2px
+    style Innovation fill:#c8e6c9,stroke:#388e3c,stroke-width:4px
+    style Patent fill:#fff9c4,stroke:#f57f17,stroke-width:4px
+    style Benefits fill:#bbdefb,stroke:#1976d2,stroke-width:3px
+
+    </div>
+</body>
+</html>

@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>DIAGRAM 29: Competitive Landscape</title>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            themeVariables: {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                primaryColor: '#bbdefb',
+                secondaryColor: '#c8e6c9',
+                tertiaryColor: '#ffe0b2',
+            }
+        });
+    </script>
+    <style>
+        body {
+            margin: 40px;
+            background: white;
+            font-family: Arial, sans-serif;
+            max-width: 1400px;
+        }
+        h1 {
+            text-align: center;
+            color: #1976D2;
+            margin-bottom: 40px;
+            font-size: 28px;
+        }
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            background: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>DIAGRAM 29: Competitive Landscape</h1>
+    <div class="mermaid">
+
+graph TB
+    Market["SMS Marketing<br/>$12.6B (2024) → $29B (2030)"]
+
+    Market --> Competitors
+
+    subgraph Competitors["Competitors"]
+        Twilio["Twilio<br/>$0.0075/SMS<br/>Market leader"]
+        Plivo["Plivo<br/>$0.0035/SMS<br/>Cheaper alternative"]
+        Vonage["Vonage<br/>$0.0045/SMS<br/>Enterprise focus"]
+        MessageBird["MessageBird<br/>$0.0050/SMS<br/>Global reach"]
+        Bandwidth["Bandwidth<br/>$0.0040/SMS<br/>Carrier-grade"]
+    end
+
+    Competitors --> Simbridge
+
+    subgraph Simbridge["🏆 SIMBRIDGE"]
+        Price["$0.001/SMS<br/>93% cheaper than Twilio"]
+        Speed["1.4s latency<br/>50% faster"]
+        Privacy["100% data sovereignty<br/>Zero third-party"]
+        Setup["5-minute setup<br/>No 10DLC registration"]
+    end
+
+    Simbridge --> Advantages
+
+    subgraph Advantages["Competitive Advantages"]
+        A1["Economic Moat<br/>10x-15x cost advantage"]
+        A2["Technical Moat<br/>OS-level access unique"]
+        A3["Data Moat<br/>Complete sovereignty"]
+        A4["Speed Moat<br/>Direct device-cloud"]
+    end
+
+    Advantages --> Target
+
+    subgraph Target["Target Market"]
+        T1["500K+ SMBs<br/>spending $500-5K/mo"]
+        T2["Avg customer savings<br/>$48K/year"]
+        T3["TAM: $6B<br/>(50% of SMS gateway market)"]
+    end
+
+    style Twilio fill:#ffcccc,stroke:#d32f2f,stroke-width:2px
+    style Plivo fill:#ffcccc,stroke:#d32f2f,stroke-width:2px
+    style Vonage fill:#ffcccc,stroke:#d32f2f,stroke-width:2px
+    style MessageBird fill:#ffcccc,stroke:#d32f2f,stroke-width:2px
+    style Bandwidth fill:#ffcccc,stroke:#d32f2f,stroke-width:2px
+    style Simbridge fill:#c8e6c9,stroke:#388e3c,stroke-width:4px
+    style Price fill:#bbdefb,stroke:#1976d2,stroke-width:2px
+    style Speed fill:#bbdefb,stroke:#1976d2,stroke-width:2px
+    style Privacy fill:#bbdefb,stroke:#1976d2,stroke-width:2px
+    style Setup fill:#bbdefb,stroke:#1976d2,stroke-width:2px
+    style Advantages fill:#ffe0b2,stroke:#f57c00,stroke-width:3px
+    style Target fill:#fff9c4,stroke:#f57f17,stroke-width:3px
+
+    </div>
+</body>
+</html>

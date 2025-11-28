@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>DIAGRAM 15: Component #8 - Guardrails (Safety & Validation)</title>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            themeVariables: {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                primaryColor: '#bbdefb',
+                secondaryColor: '#c8e6c9',
+                tertiaryColor: '#ffe0b2',
+            }
+        });
+    </script>
+    <style>
+        body {
+            margin: 40px;
+            background: white;
+            font-family: Arial, sans-serif;
+            max-width: 1400px;
+        }
+        h1 {
+            text-align: center;
+            color: #1976D2;
+            margin-bottom: 40px;
+            font-size: 28px;
+        }
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            background: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>DIAGRAM 15: Component #8 - Guardrails (Safety & Validation)</h1>
+    <div class="mermaid">
+
+graph TB
+    Response["AI Generated Response"] --> Checks
+
+    subgraph Checks["Safety Checks"]
+        C1["Content Safety<br/>Profanity filter<br/>Hate speech detection<br/>PII redaction"]
+        C2["Business Rules<br/>No pricing changes<br/>No order cancellations<br/>No refund commitments"]
+        C3["Accuracy Check<br/>Fact verification<br/>Citation validation<br/>Confidence scoring"]
+    end
+
+    C1 --> Decision
+    C2 --> Decision
+    C3 --> Decision
+
+    Decision{All Checks Pass?}
+
+    Decision -->|Yes ✓| Approve["✅ Approved Response<br/>Send to customer"]
+    Decision -->|No ✗| Fallback
+
+    subgraph Fallback["Fallback Responses"]
+        F1["Confidence <70%<br/>→ 'Let me connect you with<br/>our team: (555) 123-4567'"]
+        F2["Unsafe content<br/>→ Block message<br/>→ Log incident<br/>→ Alert admin"]
+        F3["Business rule violation<br/>→ 'For that request,<br/>please call us directly'"]
+    end
+
+    Fallback --> Log["📊 Log to Observability Hub"]
+
+    subgraph Stats["Safety Results"]
+        S1["99.7% Safe Response Rate"]
+        S2["0.3% Human Intervention"]
+        S3["Zero Inappropriate Responses"]
+    end
+
+    style C1 fill:#ffccbc,stroke:#d84315,stroke-width:3px
+    style C2 fill:#ffe0b2,stroke:#f57c00,stroke-width:3px
+    style C3 fill:#fff9c4,stroke:#f57f17,stroke-width:3px
+    style Approve fill:#c8e6c9,stroke:#388e3c,stroke-width:3px
+    style F1 fill:#ef9a9a,stroke:#c62828,stroke-width:2px
+    style F2 fill:#ef9a9a,stroke:#c62828,stroke-width:2px
+    style F3 fill:#ef9a9a,stroke:#c62828,stroke-width:2px
+    style S1 fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style S2 fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style S3 fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+
+    </div>
+</body>
+</html>

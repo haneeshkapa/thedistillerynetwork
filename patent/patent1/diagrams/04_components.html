@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>DIAGRAM 4: The 12 Components (John's Question)</title>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            themeVariables: {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                primaryColor: '#bbdefb',
+                secondaryColor: '#c8e6c9',
+                tertiaryColor: '#ffe0b2',
+            }
+        });
+    </script>
+    <style>
+        body {
+            margin: 40px;
+            background: white;
+            font-family: Arial, sans-serif;
+            max-width: 1400px;
+        }
+        h1 {
+            text-align: center;
+            color: #1976D2;
+            margin-bottom: 40px;
+            font-size: 28px;
+        }
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            background: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>DIAGRAM 4: The 12 Components (John's Question)</h1>
+    <div class="mermaid">
+
+graph TB
+    subgraph Edge["📱 EDGE LAYER"]
+        E1["#1 SMS Interceptor<br/>Tasker on Android phone<br/>OS-level message capture"]
+    end
+
+    subgraph Cloud["☁️ CLOUD PROCESSING PIPELINE"]
+        C1["#2 Secure Relay API<br/>Entry point, auth, routing"]
+        C2["#3 Memory Store<br/>3-tier caching: L1→L2→L3"]
+        C3["#4 Knowledge Fabric<br/>Google Sheets color parser"]
+        C4["#5 Retrieval Engine<br/>Hybrid BM25+Semantic+MMR"]
+        C5["#6 Orchestrator<br/>Request routing logic"]
+        C6["#7 LLM Gateway<br/>Claude AI integration"]
+        C7["#8 Guardrails<br/>Safety & business rules"]
+        C8["#9 Observability Hub<br/>Metrics, logs, alerts"]
+    end
+
+    subgraph Data["💾 DATA & INTEGRATION LAYER"]
+        D1["#10 PostgreSQL<br/>Persistent database"]
+        D2["#11 Redis Cache<br/>Fast L2 memory"]
+        D3["#12 External APIs<br/>Shopify, Google Sheets"]
+    end
+
+    E1 -->|"HTTPS<br/>Encrypted"| C1
+    C1 --> C2 --> C3 --> C4 --> C5 --> C6 --> C7 --> C8
+    C8 -.->|Queries| D1
+    C2 -.->|Cache| D2
+    C3 -.->|Data| D3
+
+    style E1 fill:#bbdefb,stroke:#1976d2,stroke-width:3px
+    style C1 fill:#b2dfdb,stroke:#00796b,stroke-width:2px
+    style C2 fill:#b2dfdb,stroke:#00796b,stroke-width:2px
+    style C3 fill:#b2dfdb,stroke:#00796b,stroke-width:2px
+    style C4 fill:#b2dfdb,stroke:#00796b,stroke-width:2px
+    style C5 fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style C6 fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style C7 fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style C8 fill:#e1bee7,stroke:#7b1fa2,stroke-width:2px
+    style D1 fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
+    style D2 fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
+    style D3 fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
+
+    </div>
+</body>
+</html>

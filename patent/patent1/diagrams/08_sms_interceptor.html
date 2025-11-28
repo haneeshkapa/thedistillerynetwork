@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>DIAGRAM 8: Component #1 - SMS Interceptor (Tasker)</title>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            themeVariables: {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                primaryColor: '#bbdefb',
+                secondaryColor: '#c8e6c9',
+                tertiaryColor: '#ffe0b2',
+            }
+        });
+    </script>
+    <style>
+        body {
+            margin: 40px;
+            background: white;
+            font-family: Arial, sans-serif;
+            max-width: 1400px;
+        }
+        h1 {
+            text-align: center;
+            color: #1976D2;
+            margin-bottom: 40px;
+            font-size: 28px;
+        }
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            background: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>DIAGRAM 8: Component #1 - SMS Interceptor (Tasker)</h1>
+    <div class="mermaid">
+
+graph TB
+    SMS[Incoming SMS] --> Android
+
+    subgraph Android["Android OS"]
+        Broadcast["SMS_RECEIVED<br/>Broadcast Intent"]
+    end
+
+    Broadcast --> Tasker
+    Broadcast -.->|"Blocked if<br/>abortBroadcast()"| DefaultApp["Default SMS App"]
+
+    subgraph Tasker["Tasker Configuration"]
+        Profile["Profile: SMS Received<br/>Priority: 999 (HIGH)"]
+        Variables["Variables:<br/>%SMSRF: Sender phone<br/>%SMSRB: Message body<br/>%SMSRD: Timestamp"]
+        Task["Task: HTTP POST<br/>URL: api.yourserver.com/sms<br/>Headers: Authorization Bearer<br/>Body: JSON payload"]
+    end
+
+    Tasker --> Cloud["☁️ Cloud Server<br/>via HTTPS"]
+
+    subgraph Why["Why This is Novel"]
+        W1["✓ OS-level interception<br/>Impossible for gateways"]
+        W2["✓ Zero marginal cost<br/>No per-SMS fees"]
+        W3["✓ Data sovereignty<br/>Never touches third-party"]
+        W4["✓ Sub-second latency<br/>Direct connection"]
+    end
+
+    style Tasker fill:#bbdefb,stroke:#1976d2,stroke-width:3px
+    style Cloud fill:#c8e6c9,stroke:#388e3c,stroke-width:3px
+    style W1 fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style W2 fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style W3 fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style W4 fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style DefaultApp fill:#ffcccc,stroke:#d32f2f,stroke-width:2px
+
+    </div>
+</body>
+</html>

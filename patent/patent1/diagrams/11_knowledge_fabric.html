@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>DIAGRAM 11: Component #4 - Knowledge Fabric (Google Sheets)</title>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            themeVariables: {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                primaryColor: '#bbdefb',
+                secondaryColor: '#c8e6c9',
+                tertiaryColor: '#ffe0b2',
+            }
+        });
+    </script>
+    <style>
+        body {
+            margin: 40px;
+            background: white;
+            font-family: Arial, sans-serif;
+            max-width: 1400px;
+        }
+        h1 {
+            text-align: center;
+            color: #1976D2;
+            margin-bottom: 40px;
+            font-size: 28px;
+        }
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            background: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>DIAGRAM 11: Component #4 - Knowledge Fabric (Google Sheets)</h1>
+    <div class="mermaid">
+
+graph TB
+    Sheets["Google Sheets<br/>Business data"] --> API["Google Sheets API v4"]
+
+    API --> Parser
+
+    subgraph Parser["Color-Code Parser - INNOVATION"]
+        RGB["Extract backgroundColor<br/>{red, green, blue} values"]
+        Map["Map RGB → Business State<br/>🟢 GREEN (183,225,205) = In Production<br/>🟡 YELLOW (255,242,204) = Awaiting Payment<br/>🔴 RED (244,199,195) = Issue/Attention<br/>⚪ WHITE (255,255,255) = Complete<br/>🔵 BLUE (207,226,243) = Custom Order"]
+        Semantic["Build semantic representation<br/>'Order #12345 is IN_PRODUCTION'"]
+    end
+
+    Parser --> Storage
+
+    subgraph Storage["Storage & Sync"]
+        JSONB["PostgreSQL JSONB<br/>Flexible schema"]
+        Vector["Vector Embeddings<br/>For semantic search"]
+        Sync["Cron: Sync every 60s<br/>Real-time updates"]
+    end
+
+    Storage --> Benefit
+
+    subgraph Benefit["Why This Matters"]
+        B1["✓ Non-technical team control<br/>Update colors, not code"]
+        B2["✓ Zero-code deployments<br/>Business logic changes instantly"]
+        B3["✓ Visual business rules<br/>Intuitive for operations team"]
+    end
+
+    style Parser fill:#e1bee7,stroke:#7b1fa2,stroke-width:3px
+    style Storage fill:#bbdefb,stroke:#1976d2,stroke-width:3px
+    style B1 fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style B2 fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style B3 fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+
+    </div>
+</body>
+</html>

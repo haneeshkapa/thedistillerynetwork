@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>DIAGRAM 14: Component #7 - LLM Gateway (Claude AI)</title>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            themeVariables: {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                primaryColor: '#bbdefb',
+                secondaryColor: '#c8e6c9',
+                tertiaryColor: '#ffe0b2',
+            }
+        });
+    </script>
+    <style>
+        body {
+            margin: 40px;
+            background: white;
+            font-family: Arial, sans-serif;
+            max-width: 1400px;
+        }
+        h1 {
+            text-align: center;
+            color: #1976D2;
+            margin-bottom: 40px;
+            font-size: 28px;
+        }
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            background: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>DIAGRAM 14: Component #7 - LLM Gateway (Claude AI)</h1>
+    <div class="mermaid">
+
+graph LR
+    Context["Retrieved Context<br/>from Knowledge Base"] --> Prompt
+
+    subgraph Prompt["Prompt Engineering"]
+        System["System Prompt<br/>'You are a customer service<br/>assistant for Moonshine Stills...'<br/>450 tokens"]
+        Retrieved["Context: {retrieved_docs}<br/>Order data, product info"]
+        Customer["Customer: {message}<br/>Actual customer question"]
+        Constraints["Constraints:<br/>• Max 160 chars (SMS limit)<br/>• Friendly, professional tone<br/>• Accurate facts only<br/>• Include next action"]
+    end
+
+    Prompt --> API
+
+    subgraph API["Claude API Call"]
+        Config["Model: claude-3-5-sonnet-20241022<br/>Max tokens: 200<br/>Temperature: 0.3<br/>Top-p: 0.9"]
+        Call["Anthropic API"]
+    end
+
+    API --> Response["AI Response"]
+
+    Response --> Optimize
+
+    subgraph Optimize["Response Optimization"]
+        Truncate["Truncate to 160 chars<br/>No split SMS"]
+        Plain["Replace jargon with<br/>plain language"]
+        Personal["Add personalization<br/>Use customer name"]
+        Action["Include next action<br/>'Reply YES to confirm'"]
+    end
+
+    Optimize --> Final["Optimized Response<br/>Ready for customer"]
+
+    style Prompt fill:#bbdefb,stroke:#1976d2,stroke-width:3px
+    style API fill:#c8e6c9,stroke:#388e3c,stroke-width:3px
+    style Optimize fill:#e1bee7,stroke:#7b1fa2,stroke-width:3px
+    style Final fill:#fff9c4,stroke:#f57f17,stroke-width:3px
+
+    </div>
+</body>
+</html>
