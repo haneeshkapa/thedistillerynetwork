@@ -488,6 +488,34 @@ function validateAndSanitizeResponse(response, orderInfo = '', customer = null) 
     }
   }
 
+  // 4. Check for fabricated delivery status claims (we don't have tracking data)
+  const deliveryPattern = /out for delivery|arriving today|delivered today|will arrive|be there (today|tomorrow|soon)|on its way to you|in transit to you|should (arrive|be there|get there)|expected delivery|delivery date|tracking shows/gi;
+  if (deliveryPattern.test(validated)) {
+    flagged = true;
+    console.warn(`⚠️ Response validation: Blocked fabricated delivery status claim`);
+  }
+
+  // 5. Check for product size mismatches (if orderInfo has gallon size, response should match)
+  if (orderInfo && customer) {
+    // Extract gallon size from orderInfo
+    const orderGallonMatch = orderInfo.match(/(\d+)\s*gallon/i);
+    if (orderGallonMatch) {
+      const correctGallonSize = orderGallonMatch[1];
+      // Check if response mentions a DIFFERENT gallon size
+      const responseGallonMatches = validated.match(/(\d+)\s*gallon/gi);
+      if (responseGallonMatches) {
+        const hasMismatch = responseGallonMatches.some(match => {
+          const responseSize = match.match(/(\d+)/)[1];
+          return responseSize !== correctGallonSize;
+        });
+        if (hasMismatch) {
+          flagged = true;
+          console.warn(`⚠️ Response validation: Blocked product size mismatch - order is ${correctGallonSize} gallon`);
+        }
+      }
+    }
+  }
+
   // If flagged, replace with safe fallback
   if (flagged) {
     console.log(`🚫 Response validation triggered - replacing with safe fallback`);
@@ -1225,7 +1253,12 @@ app.post('/reply', async (req, res) => {
         orderInfo += `- Always include the specific product name when discussing their order\n`;
         orderInfo += `- Follow the color-coded customer service approach for ${statusColor} status\n`;
         orderInfo += `- Adjust your tone and response based on the customer's patience level indicated by the color\n`;
-        
+        orderInfo += `\n🚫 DELIVERY TRACKING RULES:\n`;
+        orderInfo += `- We do NOT have real-time delivery tracking data\n`;
+        orderInfo += `- NEVER say "out for delivery", "arriving today", "on its way", or specific delivery timeframes\n`;
+        orderInfo += `- If status is "Shipped", only confirm it shipped - do NOT invent delivery dates\n`;
+        orderInfo += `- For delivery questions, say it has shipped and offer to look up tracking or call (603) 997-6786\n`;
+
         await logEvent('info', `Order status lookup successful for ${phone}: ${statusDescription} (${statusColor})`);
     } else {
         await logEvent('info', `Order status lookup failed for ${phone}: customer not found`);
@@ -1589,7 +1622,13 @@ ${orderDetails}
 - If order status shows "N/A" or unclear data, do NOT make up order numbers, dates, or status
 - Do NOT invent expedited status, specific dates, or order numbers unless explicitly clear in the data
 - If data is unclear, say "Let me check your order details for you" and offer to call back
-- NEVER make up timeline references like "before July 17th" or specific order numbers unless they appear clearly above`;
+- NEVER make up timeline references like "before July 17th" or specific order numbers unless they appear clearly above
+
+🚫 DELIVERY TRACKING RULES:
+- We do NOT have real-time delivery tracking data
+- NEVER say "out for delivery", "arriving today", "on its way", or any specific delivery timeframes
+- If order shows "Shipped", only say it has shipped - do NOT invent delivery dates or tracking updates
+- If asked about delivery, say the order has shipped and offer to look up tracking or provide the phone number`;
     }
     
     // Add current date and time context to prevent date/time confusion
@@ -1639,10 +1678,20 @@ ${orderDetails}
     });
     
     let aiResponse = completion.content[0].text.trim();
-    
+
     // Clean up response
     aiResponse = aiResponse.replace(/\[VOICE\]/g, '');
-    
+
+    // Build orderInfo from customer data for validation
+    let orderInfo = '';
+    if (customer && customer._rawData) {
+      const rawData = customer._rawData || [];
+      orderInfo = `Product: ${rawData.slice(8, 12).filter(x => x).join(', ') || 'N/A'}`;
+    }
+
+    // Validate response to catch hallucinations
+    aiResponse = validateAndSanitizeResponse(aiResponse, orderInfo, customer);
+
     return aiResponse;
 
   } catch (error) {
