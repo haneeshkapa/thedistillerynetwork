@@ -2296,6 +2296,92 @@ app.get('/debug/sheets', async (req, res) => {
   }
 });
 
+// Debug endpoint to check customer data extraction for a specific phone
+app.get('/debug/customer', async (req, res) => {
+  const phone = req.query.phone;
+  if (!phone) {
+    return res.status(400).json({ error: 'Phone number required' });
+  }
+
+  try {
+    // Clear customer cache to get fresh data
+    const normalizedPhone = normalizePhoneNumber(phone);
+    customerCache.del(normalizedPhone);
+
+    const customer = await findCustomerByPhone(phone);
+
+    if (!customer) {
+      return res.json({
+        found: false,
+        phone: phone,
+        normalizedPhone: normalizedPhone,
+        message: 'Customer not found in Google Sheets'
+      });
+    }
+
+    // Helper function same as in reply endpoint
+    function getCustomerData(customer, headerName, fallbackIndex) {
+      try {
+        const value = customer[headerName];
+        if (value) return value;
+      } catch (err) {}
+      return customer._rawData[fallbackIndex] || '';
+    }
+
+    // Extract all relevant fields
+    const data = {
+      found: true,
+      phone: phone,
+      normalizedPhone: normalizedPhone,
+      googleRowIndex: customer.googleRowIndex,
+      headers: customerSheet.headerValues,
+      extractedFields: {
+        items: getCustomerData(customer, 'items', 1),
+        Items: getCustomerData(customer, 'Items', 1),
+        'B items': getCustomerData(customer, 'B items', 1),
+        Product: getCustomerData(customer, 'Product', 1),
+        'LineItem name': getCustomerData(customer, 'LineItem name', 1),
+        shipping_name: getCustomerData(customer, 'shipping_name', 2),
+        created_at: getCustomerData(customer, 'created_at', 3),
+        total_price: getCustomerData(customer, 'total_price', 4),
+        email: getCustomerData(customer, 'email', 5),
+        phone_field: getCustomerData(customer, 'phone', 6)
+      },
+      rawData: customer._rawData
+    };
+
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to lookup customer', message: err.message });
+  }
+});
+
+// Clear conversation history for a phone number
+app.delete('/api/clear-conversation/:phone', async (req, res) => {
+  const phone = req.params.phone;
+  const normalizedPhone = normalizePhoneNumber(phone);
+
+  try {
+    // Delete messages
+    const messagesResult = await pool.query('DELETE FROM messages WHERE phone = $1', [normalizedPhone]);
+
+    // Delete conversation record
+    const convResult = await pool.query('DELETE FROM conversations WHERE phone = $1', [normalizedPhone]);
+
+    // Clear customer cache
+    customerCache.del(normalizedPhone);
+
+    res.json({
+      success: true,
+      phone: normalizedPhone,
+      messagesDeleted: messagesResult.rowCount,
+      conversationsDeleted: convResult.rowCount
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to clear conversation', message: err.message });
+  }
+});
+
 // AI Control endpoints
 app.get('/api/ai-status', async (req, res) => {
   try {
