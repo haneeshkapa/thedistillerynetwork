@@ -190,8 +190,20 @@ async function initDatabase(retries = 3) {
       name TEXT,
       paused BOOLEAN DEFAULT FALSE,
       requested_human BOOLEAN DEFAULT FALSE,
-      last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      selected_order_index INTEGER DEFAULT NULL
     )`);
+
+    // Add selected_order_index column if it doesn't exist (for existing databases)
+    await pool.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='conversations' AND column_name='selected_order_index') THEN
+          ALTER TABLE conversations ADD COLUMN selected_order_index INTEGER DEFAULT NULL;
+        END IF;
+      END $$;
+    `);
     
     // Messages table
     await pool.query(`CREATE TABLE IF NOT EXISTS messages (
@@ -667,12 +679,119 @@ async function findCustomerByPhone(phone) {
       // Cache the result
       await setCachedCustomer(cacheKey, foundCustomer);
     }
-    
+
     return foundCustomer;
   } catch (error) {
     console.error('Google Sheets lookup error:', error.message);
     await logEvent('error', `Google Sheets lookup failed for phone ${phone}: ${error.message}`);
     return null;
+  }
+}
+
+// Helper function to find ALL orders for a customer by phone
+async function findAllOrdersByPhone(phone) {
+  if (!customerSheet) return [];
+
+  const normalizedPhone = normalizePhoneNumber(phone);
+  const cacheKey = `all_orders_${normalizedPhone}`;
+
+  // Check cache first
+  const cached = await getCachedCustomer(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  try {
+    const allRows = [];
+    let offset = 0;
+    const batchSize = 500;
+
+    while (true) {
+      const batch = await customerSheet.getRows({ limit: batchSize, offset });
+      if (batch.length === 0) break;
+      allRows.push(...batch);
+      if (batch.length < batchSize) break;
+      offset += batchSize;
+
+      if (allRows.length > 5000) {
+        console.warn(`⚠️ Sheet has too many rows (${allRows.length}+), limiting to first 5000`);
+        break;
+      }
+    }
+
+    const normalizedInputPhone = normalizePhoneNumber(phone);
+    console.log(`🔍 Looking for ALL orders for phone: ${phone} -> normalized: ${normalizedInputPhone}`);
+
+    // Helper function to get phone field from row
+    function getPhoneFromRow(row) {
+      const phoneHeaders = ['Phone', 'phone', 'Phone Number', 'phone_number', 'PhoneNumber', 'PHONE', 'Tel', 'Mobile'];
+      for (const header of phoneHeaders) {
+        const value = row[header];
+        if (value) return value;
+      }
+      return row._rawData[6];
+    }
+
+    // Helper to get product from row
+    function getProductFromRow(row) {
+      const productHeaders = ['Product', 'LineItem name', 'Item', 'product', 'Product Name'];
+      for (const header of productHeaders) {
+        const value = row[header];
+        if (value) return value;
+      }
+      return row._rawData[1] || row._rawData[8] || 'Unknown Product';
+    }
+
+    // Helper to get order date from row
+    function getOrderDateFromRow(row) {
+      const dateHeaders = ['Created at', 'Order Date', 'Date', 'created_at', 'order_date'];
+      for (const header of dateHeaders) {
+        const value = row[header];
+        if (value) return value;
+      }
+      return row._rawData[3] || 'Unknown Date';
+    }
+
+    const matchingOrders = [];
+
+    allRows.forEach((row, index) => {
+      const phoneField = getPhoneFromRow(row);
+      if (!phoneField) return;
+
+      const normalizedRowPhone = normalizePhoneNumber(phoneField);
+
+      // Check for exact or partial match
+      let isMatch = (normalizedRowPhone === normalizedInputPhone);
+      if (!isMatch && normalizedRowPhone.length >= 10 && normalizedInputPhone.length >= 10) {
+        const rowLast10 = normalizedRowPhone.slice(-10);
+        const inputLast10 = normalizedInputPhone.slice(-10);
+        isMatch = (rowLast10 === inputLast10);
+      }
+
+      if (isMatch) {
+        row.googleRowIndex = index + 1;
+        row.orderSummary = {
+          product: getProductFromRow(row),
+          date: getOrderDateFromRow(row),
+          rowIndex: index + 1
+        };
+        matchingOrders.push(row);
+        console.log(`✅ Found order ${matchingOrders.length} at Row ${index + 1}: ${row.orderSummary.product}`);
+      }
+    });
+
+    console.log(`📋 Total orders found for ${phone}: ${matchingOrders.length}`);
+
+    // Cache the results
+    if (matchingOrders.length > 0) {
+      await setCachedCustomer(cacheKey, matchingOrders);
+    }
+
+    return matchingOrders;
+  } catch (error) {
+    console.error('Google Sheets multi-order lookup error:', error.message);
+    await logEvent('error', `Google Sheets multi-order lookup failed for ${phone}: ${error.message}`);
+    return [];
   }
 }
 
@@ -1079,8 +1198,75 @@ app.post('/reply', async (req, res) => {
     }
 
     // Always check if this is a known customer first - only respond to customers in Google Sheets
-    const customer = await findCustomerByPhone(phone);
-    
+    // Use findAllOrdersByPhone to support multiple orders per customer
+    const allOrders = await findAllOrdersByPhone(phone);
+    const hasMultipleOrders = allOrders.length > 1;
+
+    // Get selected order index from conversation (if previously selected)
+    let selectedOrderIndex = conversation.selected_order_index;
+
+    // Check if user is selecting an order by number (e.g., "1", "2", "order 1", "first one")
+    const orderSelectionPattern = /^(?:order\s*)?(\d+)$|^(?:the\s*)?(first|second|third|1st|2nd|3rd|one|two|three)(?:\s+one)?$/i;
+    const selectionMatch = userMessage.trim().match(orderSelectionPattern);
+
+    if (hasMultipleOrders && selectionMatch) {
+      let selectedNum = null;
+      const numWord = (selectionMatch[1] || selectionMatch[2] || '').toLowerCase();
+
+      if (/^1$|first|1st|one/.test(numWord)) selectedNum = 0;
+      else if (/^2$|second|2nd|two/.test(numWord)) selectedNum = 1;
+      else if (/^3$|third|3rd|three/.test(numWord)) selectedNum = 2;
+      else if (/^\d+$/.test(numWord)) selectedNum = parseInt(numWord) - 1;
+
+      if (selectedNum !== null && selectedNum >= 0 && selectedNum < allOrders.length) {
+        selectedOrderIndex = selectedNum;
+        await pool.query('UPDATE conversations SET selected_order_index = $1 WHERE phone = $2', [selectedOrderIndex, phone]);
+        await logEvent('info', `Customer ${phone} selected order ${selectedNum + 1}: ${allOrders[selectedNum].orderSummary?.product}`);
+
+        // Confirm selection and continue conversation
+        const selectedOrder = allOrders[selectedNum];
+        const confirmMsg = `Got it! I'm now looking at your order for the ${selectedOrder.orderSummary?.product || 'selected product'} from ${selectedOrder.orderSummary?.date || 'your order date'}. How can I help you with this order?`;
+
+        await pool.query(
+          'INSERT INTO messages(phone, sender, message, timestamp) VALUES($1, $2, $3, $4)',
+          [phone, 'assistant', confirmMsg, new Date()]
+        );
+        await logEvent('info', `Sending order selection confirmation to ${phone}`);
+        return res.status(200).type('text/plain').send(confirmMsg);
+      }
+    }
+
+    // If multiple orders and none selected yet, and user is asking about orders, ask which one
+    const orderPattern = /order|ordered|purchase|purchased|bought|status|tracking|shipped|delivery|when will|eta|where.*my|my.*order/i;
+    if (hasMultipleOrders && selectedOrderIndex === null && orderPattern.test(userMessage)) {
+      let orderListMsg = `I see you have ${allOrders.length} orders with us! Which one would you like to discuss?\n\n`;
+
+      allOrders.forEach((order, idx) => {
+        const product = order.orderSummary?.product || 'Unknown Product';
+        const date = order.orderSummary?.date || 'Unknown Date';
+        orderListMsg += `${idx + 1}. ${product} (ordered ${date})\n`;
+      });
+
+      orderListMsg += `\nJust reply with the number (1, 2, etc.) of the order you'd like to discuss.`;
+
+      await pool.query(
+        'INSERT INTO messages(phone, sender, message, timestamp) VALUES($1, $2, $3, $4)',
+        [phone, 'assistant', orderListMsg, new Date()]
+      );
+      await logEvent('info', `Asked ${phone} to select from ${allOrders.length} orders`);
+      return res.status(200).type('text/plain').send(orderListMsg);
+    }
+
+    // Get the customer object - either the selected order or the first/only order
+    let customer = null;
+    if (allOrders.length > 0) {
+      if (selectedOrderIndex !== null && selectedOrderIndex < allOrders.length) {
+        customer = allOrders[selectedOrderIndex];
+      } else {
+        customer = allOrders[0]; // Default to first order if only one or none selected
+      }
+    }
+
     // Helper function to get customer name for validation
     function getCustomerName(customer) {
       if (!customer) return null;
@@ -1090,7 +1276,7 @@ app.post('/reply', async (req, res) => {
         return customer._rawData[2] || null;
       }
     }
-    
+
     const customerName = getCustomerName(customer);
     const isCustomer = customer && customerName;
 
@@ -1108,7 +1294,7 @@ app.post('/reply', async (req, res) => {
     }
 
     // Handle order-related messages for customers only (not non-customers)
-    const orderPattern = /order|ordered|purchase|purchased|bought|status|tracking|shipped|delivery|when will|eta|where.*my|my.*order/i;
+    // Note: orderPattern is already defined above for multi-order selection
     let orderInfo = "";
     if (isCustomer && orderPattern.test(userMessage) && customer && customer._rawData) {
         // Helper function to get customer data using headers or fallback to raw index
