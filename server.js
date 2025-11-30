@@ -734,7 +734,7 @@ async function findAllOrdersByPhone(phone) {
 
     // Helper to get product from row
     function getProductFromRow(row) {
-      const productHeaders = ['Product', 'LineItem name', 'Item', 'product', 'Product Name'];
+      const productHeaders = ['items', 'Items', 'B items', 'Product', 'LineItem name', 'Item', 'product', 'Product Name'];
       for (const header of productHeaders) {
         const value = row[header];
         if (value) return value;
@@ -1310,7 +1310,7 @@ app.post('/reply', async (req, res) => {
         
         // Extract order information from Shopify Google Sheets row using header-based lookup
         const customerEmail = getCustomerData(customer, 'Email', 0);
-        const productOrdered = getCustomerData(customer, 'Product', 1) || getCustomerData(customer, 'LineItem name', 1);
+        const productOrdered = getCustomerData(customer, 'items', 1) || getCustomerData(customer, 'Items', 1) || getCustomerData(customer, 'B items', 1) || getCustomerData(customer, 'Product', 1) || getCustomerData(customer, 'LineItem name', 1);
         const customerName = getCustomerData(customer, 'Name', 2) || getCustomerData(customer, 'Customer', 2);
         const orderDate = getCustomerData(customer, 'Created at', 3) || getCustomerData(customer, 'Order Date', 3) || getCustomerData(customer, 'Date', 3);
         const totalPrice = getCustomerData(customer, 'Total', 4) || getCustomerData(customer, 'Price', 4);
