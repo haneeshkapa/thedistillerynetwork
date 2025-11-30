@@ -1419,7 +1419,9 @@ app.post('/reply', async (req, res) => {
           await logEvent('error', `Failed to read cell colors for ${phone}: ${colorError.message}`);
         }
         
-        orderInfo = `\n\nCUSTOMER ORDER INFORMATION:\n`;
+        orderInfo = `\n\n🚨🚨🚨 THIS CUSTOMER'S SPECIFIC ORDER DATA - USE ONLY THIS INFO 🚨🚨🚨\n`;
+        orderInfo += `⚠️ CRITICAL: The product information below is from THIS CUSTOMER'S actual order in our database.\n`;
+        orderInfo += `⚠️ DO NOT use any other product names from your knowledge - ONLY use what's listed here.\n\n`;
         orderInfo += `Customer: ${customerName}\n`;
         // Note: Internal row reference ${orderId} - DO NOT mention to customer unless they have a real order number
         if (hasOrderDate) {
@@ -1427,7 +1429,8 @@ app.post('/reply', async (req, res) => {
         } else {
           orderInfo += `⚠️ ORDER DATE NOT AVAILABLE - Do not guess or estimate dates. If asked about order dates, say "Let me check your order date and get back to you."\n`;
         }
-        if (productOrdered) orderInfo += `Product Ordered: ${productOrdered}\n`;
+        orderInfo += `\n✅ EXACT PRODUCT ORDERED: ${productOrdered || 'Product info not available - ask customer to clarify'}\n`;
+        orderInfo += `⚠️ USE THIS EXACT PRODUCT NAME ABOVE - do not substitute with any other product!\n\n`;
         orderInfo += `Current Status: ${statusDescription}\n`;
         if (trackingInfo) orderInfo += `Email/Tracking: ${trackingInfo}\n`;
         orderInfo += `\n🎨 COLOR CODE STATUS: ${statusColor} = ${statusDescription}\n`;
@@ -1450,9 +1453,19 @@ app.post('/reply', async (req, res) => {
         await logEvent('info', `Order status lookup failed for ${phone}: customer not found`);
     }
 
-    // Retrieve relevant knowledge - reduced from 3 to 2 to save processing time
-    const knowledgeChunks = await knowledgeRetriever.retrieveRelevantChunks(userMessage, 2);
-    await logEvent('info', `Knowledge retrieved: found ${knowledgeChunks.length} relevant pieces.`);
+    // Retrieve relevant knowledge - BUT skip for order queries when we have customer data
+    // This prevents the AI from pulling generic product info instead of using the customer's actual order
+    let knowledgeChunks = [];
+    const isOrderQuery = orderPattern.test(userMessage);
+
+    if (isOrderQuery && isCustomer && orderInfo) {
+      // Skip knowledge retrieval for order queries - use only customer's actual order data
+      await logEvent('info', `Skipping knowledge retrieval for order query - using customer's order data only`);
+    } else {
+      // Normal knowledge retrieval for non-order queries
+      knowledgeChunks = await knowledgeRetriever.retrieveRelevantChunks(userMessage, 2);
+      await logEvent('info', `Knowledge retrieved: found ${knowledgeChunks.length} relevant pieces.`);
+    }
 
     // Get personality and system instructions from database
     const [persResult, systemResult] = await Promise.all([
