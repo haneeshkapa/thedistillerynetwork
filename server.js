@@ -1137,7 +1137,8 @@ app.post('/reply', async (req, res) => {
       }
     } else {
       // Existing conversation: verify customer still exists in Google Sheets
-      if (!conversation.name) {
+      // Also re-check if conversation was from a non-customer (in case sheets-only mode was enabled since)
+      if (!conversation.name || conversation.name === 'Non-customer') {
         const customer = await findCustomerByPhone(phone);
         
         // Helper function to get customer name
