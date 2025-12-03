@@ -1570,8 +1570,8 @@ app.post('/reply', async (req, res) => {
     try {
       const completion = await anthropicClient.messages.create({
         model: ANTHROPIC_MODEL,
-        max_tokens: 200, // Reduced from 300 to save processing time
-        temperature: 0.7,
+        max_tokens: 120, // Keep it SHORT - 2-3 sentences max
+        temperature: 0.3, // Lower temp = less creative/roleplay behavior
         system: systemContent,
         messages: messages
       });
@@ -1870,8 +1870,8 @@ ${orderDetails}
     // Call Claude API
     const completion = await anthropicClient.messages.create({
       model: ANTHROPIC_MODEL,
-      max_tokens: 200,
-      temperature: 0.7,
+      max_tokens: 120, // Keep it SHORT - 2-3 sentences max
+      temperature: 0.3, // Lower temp = less creative/roleplay behavior
       system: systemContent,
       messages: messages
     });
