@@ -6,6 +6,31 @@
  * - Integrates with Shopify for product catalog syncing
  */
 
+const { Blob: NodeBlob } = require('buffer');
+
+// Render/Node 18 environments sometimes lack a global File constructor which undici expects.
+if (typeof globalThis.File === 'undefined') {
+  const BlobImpl = globalThis.Blob || NodeBlob;
+  if (BlobImpl) {
+    globalThis.File = class File extends BlobImpl {
+      constructor(bits = [], name = '', options = {}) {
+        super(bits, options);
+        this.name = name;
+        this.lastModified = options?.lastModified || Date.now();
+      }
+    };
+  } else {
+    globalThis.File = class File {
+      constructor(bits = [], name = '', options = {}) {
+        this.name = name;
+        this.lastModified = options?.lastModified || Date.now();
+        this.size = bits?.reduce((total, chunk) => total + (chunk?.length || 0), 0) || 0;
+        this.type = options?.type || '';
+      }
+    };
+  }
+}
+
 const express = require('express');
 const Anthropic = require('@anthropic-ai/sdk');
 const { GoogleSpreadsheet } = require('google-spreadsheet');
@@ -43,6 +68,7 @@ const {
   REDIS_DB,
   PORT = 3000
 } = process.env;
+const HOST = process.env.HOST || '0.0.0.0';
 
 // Set up PostgreSQL connection pool with optimized settings
 const pool = new Pool({
@@ -1236,8 +1262,50 @@ app.post('/reply', async (req, res) => {
       }
     }
 
+    // Check if customer is identifying themselves by name (e.g., "This is Greg French", "I'm John Smith")
+    const nameIdentificationPattern = /(?:this is|i'm|i am|my name is)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i;
+    const nameMatch = userMessage.match(nameIdentificationPattern);
+    
+    if (nameMatch && allOrders.length > 0) {
+      const providedName = nameMatch[1].trim();
+      console.log(`🔍 Customer identifying as: ${providedName}`);
+      
+      // Search for order matching this name
+      let matchedOrderIndex = null;
+      allOrders.forEach((order, idx) => {
+        const orderName = order._rawData[2] || order['Name'] || order['Customer'] || order['shipping_name'] || '';
+        // Check if provided name matches (case-insensitive, partial match for first/last name)
+        if (orderName.toLowerCase().includes(providedName.toLowerCase()) || 
+            providedName.toLowerCase().includes(orderName.toLowerCase())) {
+          matchedOrderIndex = idx;
+          console.log(`✅ Found matching order at index ${idx}: ${orderName}`);
+        }
+      });
+      
+      if (matchedOrderIndex !== null) {
+        // Found a match - update selected order
+        selectedOrderIndex = matchedOrderIndex;
+        await pool.query('UPDATE conversations SET selected_order_index = $1 WHERE phone = $2', [selectedOrderIndex, phone]);
+        await logEvent('info', `Customer ${phone} identified as ${providedName}, matched to order ${matchedOrderIndex + 1}`);
+        
+        // Update conversation name to match
+        await pool.query('UPDATE conversations SET name = $1 WHERE phone = $2', [providedName, phone]);
+        
+        // Confirm identification
+        const matchedOrder = allOrders[matchedOrderIndex];
+        const confirmMsg = `Thanks for clarifying, ${providedName}! I've got your order details now. How can I help you today?`;
+        
+        await pool.query(
+          'INSERT INTO messages(phone, sender, message, timestamp) VALUES($1, $2, $3, $4)',
+          [phone, 'assistant', confirmMsg, new Date()]
+        );
+        await logEvent('info', `Confirmed identity for ${phone} as ${providedName}`);
+        return res.status(200).type('text/plain').send(confirmMsg);
+      }
+    }
+
     // If multiple orders and none selected yet, and user is asking about orders, ask which one
-    const orderPattern = /order|ordered|purchase|purchased|bought|status|tracking|shipped|delivery|when will|eta|where.*my|my.*order/i;
+    const orderPattern = /(\b(order|ordered|purchase|purchased|bought|status|tracking|ship|shipped|shipping|shipment|deliver|delivered|delivering|delivery|arrive|arrival|arriving|eta)\b|when will|where.*my|my.*order)/i;
     if (hasMultipleOrders && selectedOrderIndex === null && orderPattern.test(userMessage)) {
       let orderListMsg = `I see you have ${allOrders.length} orders with us! Which one would you like to discuss?\n\n`;
 
@@ -2381,7 +2449,7 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // Start server after initializing database
 initDatabase().then(() => {
-  const server = app.listen(PORT, () => {
+  const server = app.listen(PORT, HOST, () => {
     console.log(`✅ SMS bot server listening on port ${PORT}`);
     console.log(`🥃 Jonathan's Distillation Bot server is ready!`);
 
