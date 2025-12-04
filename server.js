@@ -527,10 +527,12 @@ function validateAndSanitizeResponse(response, orderInfo = '', customer = null) 
   }
 
   // 4. Check for fabricated delivery status claims (we don't have tracking data)
-  const deliveryPattern = /out for delivery|arriving today|delivered today|will arrive|be there (today|tomorrow|soon)|on its way to you|in transit to you|should (arrive|be there|get there)|expected delivery|delivery date|tracking shows/gi;
-  if (deliveryPattern.test(validated)) {
+  // Allow general statements like "has shipped" or "is on the way" if we have order status
+  // Block SPECIFIC claims like "arriving today" or "out for delivery" that require real-time tracking
+  const specificDeliveryPattern = /out for delivery|arriving (today|tomorrow|this week)|delivered today|will arrive (today|tomorrow|this week)|be there (today|tomorrow)|expected delivery (today|tomorrow)|delivery date.*\d|tracking shows/gi;
+  if (specificDeliveryPattern.test(validated)) {
     flagged = true;
-    console.warn(`⚠️ Response validation: Blocked fabricated delivery status claim`);
+    console.warn(`⚠️ Response validation: Blocked specific delivery timeframe claim`);
   }
 
   // 4b. Check for any mention of tracking numbers (we don't provide tracking numbers)
@@ -1528,8 +1530,9 @@ app.post('/reply', async (req, res) => {
         orderInfo += `\n🚫 DELIVERY TRACKING RULES:\n`;
         orderInfo += `- We do NOT have real-time delivery tracking data in this system\n`;
         orderInfo += `- NEVER provide specific tracking numbers - they are not in our database\n`;
-        orderInfo += `- NEVER say "out for delivery", "arriving today", "on its way", or specific delivery timeframes\n`;
-        orderInfo += `- If status is "Shipped", only confirm it shipped - do NOT invent delivery dates or tracking numbers\n`;
+        orderInfo += `- You CAN say general things like "has shipped", "is on the way", "in transit"\n`;
+        orderInfo += `- NEVER say SPECIFIC timeframes: "arriving today", "out for delivery", "will arrive tomorrow"\n`;
+        orderInfo += `- If status is "Shipped", confirm it shipped and say it's on the way - that's fine\n`;
         orderInfo += `- For tracking questions, say you can "look that up" and offer to call back or provide (603) 997-6786\n`;
 
         await logEvent('info', `Order status lookup successful for ${phone}: ${statusDescription} (${statusColor})`);
@@ -1925,8 +1928,9 @@ ${orderDetails}
 🚫 DELIVERY TRACKING RULES:
 - We do NOT have real-time delivery tracking data
 - NEVER provide tracking numbers - we don't have them in our system
-- NEVER say "out for delivery", "arriving today", "on its way", or any specific delivery timeframes
-- If order shows "Shipped", only say it has shipped - do NOT invent delivery dates or tracking updates
+- You CAN say general things: "has shipped", "is on the way", "in transit" when status shows shipped
+- NEVER say specific timeframes: "arriving today", "out for delivery", "will arrive tomorrow"
+- If order shows "Shipped", confirm it shipped and say it's on the way - that's allowed
 - If asked about tracking, say "I can look that up for you" and offer to call back or provide phone (603) 997-6786`;
     }
     
