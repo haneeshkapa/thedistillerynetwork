@@ -1654,13 +1654,28 @@ app.post('/reply', async (req, res) => {
     try {
       const completion = await anthropicClient.messages.create({
         model: ANTHROPIC_MODEL,
-        max_tokens: 180, // Enough to complete thoughts, but still concise
-        temperature: 0.3, // Lower temp = less creative/roleplay behavior
+        max_tokens: 180,
+        temperature: 0.1, // Very low temp to minimize creative/roleplay behavior
         system: systemContent,
         messages: messages
       });
 
       aiResponse = completion.content[0].text.trim();
+      
+      // Clean up response - remove all roleplaying actions and stage directions
+      aiResponse = aiResponse.replace(/\[VOICE\]/g, '');
+      
+      // Remove asterisk-based actions: *checks*, *pauses*, *smiles*, etc.
+      aiResponse = aiResponse.replace(/\*[^*]+\*/g, '');
+      
+      // Remove parenthetical stage directions
+      aiResponse = aiResponse.replace(/\([^)]*(?:pauses|checks|looks|smiles|grins|chuckles|laughs|nods|shrugs)[^)]*\)/gi, '');
+      
+      // Clean up any double spaces or weird formatting from removals
+      aiResponse = aiResponse.replace(/\s{2,}/g, ' ').trim();
+      
+      // Remove leading/trailing spaces from each line
+      aiResponse = aiResponse.split('\n').map(line => line.trim()).filter(line => line).join('\n\n');
 
       // Handle image messages specially
       if (mediaUrl && mediaUrl !== '') {
@@ -1955,16 +1970,28 @@ ${orderDetails}
     // Call Claude API
     const completion = await anthropicClient.messages.create({
       model: ANTHROPIC_MODEL,
-      max_tokens: 180, // Enough to complete thoughts, but still concise
-      temperature: 0.3, // Lower temp = less creative/roleplay behavior
+      max_tokens: 180,
+      temperature: 0.1, // Very low temp to minimize creative/roleplay behavior
       system: systemContent,
       messages: messages
     });
     
     let aiResponse = completion.content[0].text.trim();
 
-    // Clean up response
+    // Clean up response - remove all roleplaying actions and stage directions
     aiResponse = aiResponse.replace(/\[VOICE\]/g, '');
+    
+    // Remove asterisk-based actions: *checks*, *pauses*, *smiles*, etc.
+    aiResponse = aiResponse.replace(/\*[^*]+\*/g, '');
+    
+    // Remove parenthetical stage directions
+    aiResponse = aiResponse.replace(/\([^)]*(?:pauses|checks|looks|smiles|grins|chuckles|laughs|nods|shrugs)[^)]*\)/gi, '');
+    
+    // Clean up any double spaces or weird formatting from removals
+    aiResponse = aiResponse.replace(/\s{2,}/g, ' ').trim();
+    
+    // Remove leading/trailing spaces from each line
+    aiResponse = aiResponse.split('\n').map(line => line.trim()).filter(line => line).join('\n\n');
 
     // Build orderInfo from customer data for validation
     let orderInfo = '';
