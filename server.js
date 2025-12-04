@@ -533,6 +533,18 @@ function validateAndSanitizeResponse(response, orderInfo = '', customer = null) 
     console.warn(`⚠️ Response validation: Blocked fabricated delivery status claim`);
   }
 
+  // 4b. Check for fabricated tracking numbers (we don't provide tracking numbers)
+  // Common tracking number formats: UPS (1Z), FedEx (12-14 digits), USPS (20-22 digits)
+  const trackingNumberPattern = /\b(1Z[A-Z0-9]{16}|[0-9]{12,14}|[0-9]{20,22}|tracking\s+number\s*:?\s*[A-Z0-9]{10,})\b/i;
+  if (trackingNumberPattern.test(validated)) {
+    // Check if the tracking number is actually in the customer data
+    const hasValidTracking = orderInfo && trackingNumberPattern.test(orderInfo);
+    if (!hasValidTracking) {
+      flagged = true;
+      console.warn(`⚠️ Response validation: Blocked fabricated tracking number`);
+    }
+  }
+
   // 5. Check for product size mismatches (if orderInfo has gallon size, response should match)
   if (orderInfo && customer) {
     // Extract gallon size from orderInfo
@@ -1511,10 +1523,11 @@ app.post('/reply', async (req, res) => {
         orderInfo += `- Follow the color-coded customer service approach for ${statusColor} status\n`;
         orderInfo += `- Adjust your tone and response based on the customer's patience level indicated by the color\n`;
         orderInfo += `\n🚫 DELIVERY TRACKING RULES:\n`;
-        orderInfo += `- We do NOT have real-time delivery tracking data\n`;
+        orderInfo += `- We do NOT have real-time delivery tracking data in this system\n`;
+        orderInfo += `- NEVER provide specific tracking numbers - they are not in our database\n`;
         orderInfo += `- NEVER say "out for delivery", "arriving today", "on its way", or specific delivery timeframes\n`;
-        orderInfo += `- If status is "Shipped", only confirm it shipped - do NOT invent delivery dates\n`;
-        orderInfo += `- For delivery questions, say it has shipped and offer to look up tracking or call (603) 997-6786\n`;
+        orderInfo += `- If status is "Shipped", only confirm it shipped - do NOT invent delivery dates or tracking numbers\n`;
+        orderInfo += `- For tracking questions, say you can "look that up" and offer to call back or provide (603) 997-6786\n`;
 
         await logEvent('info', `Order status lookup successful for ${phone}: ${statusDescription} (${statusColor})`);
     } else {
@@ -1893,9 +1906,10 @@ ${orderDetails}
 
 🚫 DELIVERY TRACKING RULES:
 - We do NOT have real-time delivery tracking data
+- NEVER provide tracking numbers - we don't have them in our system
 - NEVER say "out for delivery", "arriving today", "on its way", or any specific delivery timeframes
 - If order shows "Shipped", only say it has shipped - do NOT invent delivery dates or tracking updates
-- If asked about delivery, say the order has shipped and offer to look up tracking or provide the phone number`;
+- If asked about tracking, say "I can look that up for you" and offer to call back or provide phone (603) 997-6786`;
     }
     
     // Add current date and time context to prevent date/time confusion
