@@ -1466,38 +1466,51 @@ app.post('/reply', async (req, res) => {
             console.log(`🎨 RGB values for ${phone}: R=${red.toFixed(3)} G=${green.toFixed(3)} B=${blue.toFixed(3)}`);
 
             // Map colors to status descriptions based on your color coding system
+            // Internal status for logging vs. customer-facing status
+            let internalStatus = "";
+            let customerFacingStatus = "";
+            
             if (red > 0.9 && green < 0.3 && blue < 0.3) {
               // Red - Customer wants to cancel
-              statusDescription = "Customer wants to cancel (RED)";
+              internalStatus = "Customer wants to cancel (RED)";
+              customerFacingStatus = "In production";
               statusColor = "red";
             } else if (red < 0.3 && green > 0.7 && blue < 0.3) {
               // Green - Shipped
-              statusDescription = "Shipped (GREEN)";
+              internalStatus = "Shipped (GREEN)";
+              customerFacingStatus = "Shipped";
               statusColor = "green";
             } else if (red > 0.8 && green > 0.8 && blue < 0.3) {
               // Yellow - In production
-              statusDescription = "In production (YELLOW)";
+              internalStatus = "In production (YELLOW)";
+              customerFacingStatus = "In production";
               statusColor = "yellow";
             } else if (red > 0.7 && green < 0.7 && blue > 0.7) {
               // Purple - Expediting order (at risk of cancellation)
-              statusDescription = "Expediting order - at risk of cancellation (PURPLE)";
+              internalStatus = "Expediting order - at risk of cancellation (PURPLE)";
+              customerFacingStatus = "In production - being expedited";
               statusColor = "purple";
             } else if (red < 0.3 && green > 0.5 && blue > 0.7) {
               // Light blue - First step of antsy
-              statusDescription = "Customer getting impatient - needs update (LIGHT BLUE)";
+              internalStatus = "Customer getting impatient - needs update (LIGHT BLUE)";
+              customerFacingStatus = "In production";
               statusColor = "light blue";
             } else if (red < 0.3 && green < 0.3 && blue > 0.7) {
               // Dark blue - Second step of antsy
-              statusDescription = "Customer very impatient - second escalation (DARK BLUE)";
+              internalStatus = "Customer very impatient - second escalation (DARK BLUE)";
+              customerFacingStatus = "In production";
               statusColor = "dark blue";
             } else {
               // White - Order just received
-              statusDescription = "Order just received (WHITE)";
+              internalStatus = "Order just received (WHITE)";
+              customerFacingStatus = "Order received";
               statusColor = "white";
             }
+            
+            statusDescription = customerFacingStatus;
 
-            // Log the final mapped status for audit
-            console.log(`🎨 Mapped status for ${phone}: ${statusColor.toUpperCase()} = ${statusDescription}`);
+            // Log the final mapped status for audit (use internal status for logging)
+            console.log(`🎨 Mapped status for ${phone}: ${statusColor.toUpperCase()} = ${internalStatus}`);
           }
         } catch (colorError) {
           console.error('Error reading cell colors:', colorError);
@@ -1518,8 +1531,40 @@ app.post('/reply', async (req, res) => {
         orderInfo += `⚠️ USE THIS EXACT PRODUCT NAME ABOVE - do not substitute with any other product!\n\n`;
         orderInfo += `Current Status: ${statusDescription}\n`;
         if (trackingInfo) orderInfo += `Email/Tracking: ${trackingInfo}\n`;
-        orderInfo += `\n🎨 COLOR CODE STATUS: ${statusColor} = ${statusDescription}\n`;
-        orderInfo += `\nIMPORTANT INSTRUCTIONS:\n`;
+        orderInfo += `\n🎨 STATUS HANDLING INSTRUCTIONS:\n`;
+        
+        // Add color-specific handling instructions
+        if (statusColor === "red") {
+          orderInfo += `⚠️ RED STATUS - Customer wants to cancel:\n`;
+          orderInfo += `- Be empathetic and understanding\n`;
+          orderInfo += `- Acknowledge the delay/frustration\n`;
+          orderInfo += `- Offer immediate callback or direct phone contact\n`;
+          orderInfo += `- Don't make promises about timeline - say you'll call them right away\n`;
+        } else if (statusColor === "light blue" || statusColor === "dark blue") {
+          orderInfo += `⚠️ ${statusColor.toUpperCase()} STATUS - Customer is getting impatient:\n`;
+          orderInfo += `- Be proactive and reassuring\n`;
+          orderInfo += `- Status shown to customer is "In production"\n`;
+          orderInfo += `- Acknowledge they've been waiting and thank them for patience\n`;
+          orderInfo += `- Offer to have someone call with a specific update\n`;
+          orderInfo += `- Don't give vague timelines - offer direct contact instead\n`;
+        } else if (statusColor === "purple") {
+          orderInfo += `⚠️ PURPLE STATUS - Order being expedited:\n`;
+          orderInfo += `- Tell customer their order is being expedited/prioritized\n`;
+          orderInfo += `- Show appreciation for their patience\n`;
+          orderInfo += `- Offer to call with specific timeline update\n`;
+        } else if (statusColor === "yellow") {
+          orderInfo += `✅ YELLOW STATUS - In production:\n`;
+          orderInfo += `- Confirm order is being crafted/assembled\n`;
+          orderInfo += `- Be positive and helpful\n`;
+        } else if (statusColor === "green") {
+          orderInfo += `✅ GREEN STATUS - Shipped:\n`;
+          orderInfo += `- Confirm order has shipped\n`;
+          orderInfo += `- Mention tracking was sent to their email\n`;
+          orderInfo += `- Offer to look up tracking if needed\n`;
+        }
+        
+        orderInfo += `\n`;
+        orderInfo += `IMPORTANT INSTRUCTIONS:\n`;
         orderInfo += `- You have full access to the customer's product details above\n`;
         orderInfo += `- DO NOT ask for order numbers, products, or details - you already have them!\n`;
         orderInfo += `- NEVER ask "Can you provide your order number?" - you can see their order!\n`;
