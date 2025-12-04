@@ -533,15 +533,18 @@ function validateAndSanitizeResponse(response, orderInfo = '', customer = null) 
     console.warn(`⚠️ Response validation: Blocked fabricated delivery status claim`);
   }
 
-  // 4b. Check for fabricated tracking numbers (we don't provide tracking numbers)
-  // Common tracking number formats: UPS (1Z), FedEx (12-14 digits), USPS (20-22 digits)
-  const trackingNumberPattern = /\b(1Z[A-Z0-9]{16}|[0-9]{12,14}|[0-9]{20,22}|tracking\s+number\s*:?\s*[A-Z0-9]{10,})\b/i;
-  if (trackingNumberPattern.test(validated)) {
-    // Check if the tracking number is actually in the customer data
-    const hasValidTracking = orderInfo && trackingNumberPattern.test(orderInfo);
+  // 4b. Check for any mention of tracking numbers (we don't provide tracking numbers)
+  // Block if response explicitly mentions "tracking number" or shows tracking number patterns
+  const trackingMentionPattern = /tracking\s+number|tracking\s*#|tracking\s*code/i;
+  const trackingNumberPattern = /\b1Z[A-Z0-9]{16,18}\b/i;  // UPS format specifically
+  
+  if (trackingMentionPattern.test(validated) || trackingNumberPattern.test(validated)) {
+    // Check if the tracking info is actually in the customer data
+    const hasValidTracking = orderInfo && (trackingMentionPattern.test(orderInfo) || trackingNumberPattern.test(orderInfo));
     if (!hasValidTracking) {
       flagged = true;
-      console.warn(`⚠️ Response validation: Blocked fabricated tracking number`);
+      const match = validated.match(trackingNumberPattern);
+      console.warn(`⚠️ Response validation: Blocked fabricated tracking number${match ? ': ' + match[0] : ''}`);
     }
   }
 
