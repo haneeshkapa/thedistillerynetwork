@@ -280,6 +280,26 @@ async function initDatabase(retries = 3) {
       value TEXT NOT NULL,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`);
+    
+    // Action items table for tracking bot promises that need manual fulfillment
+    await pool.query(`CREATE TABLE IF NOT EXISTS action_items (
+      id SERIAL PRIMARY KEY,
+      phone VARCHAR(20) NOT NULL,
+      customer_name VARCHAR(255),
+      type VARCHAR(50) NOT NULL,
+      description TEXT NOT NULL,
+      priority VARCHAR(20) DEFAULT 'normal',
+      status VARCHAR(20) DEFAULT 'pending',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      completed_at TIMESTAMP,
+      completed_by VARCHAR(100),
+      notes TEXT
+    )`);
+    
+    // Indexes for action items
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_action_items_status ON action_items(status)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_action_items_phone ON action_items(phone)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_action_items_created ON action_items(created_at DESC)`);
 
     // Insert default personality if none exists
     const personalityResult = await pool.query('SELECT id FROM personality LIMIT 1');
@@ -838,6 +858,76 @@ async function findAllOrdersByPhone(phone) {
   }
 }
 
+// Helper function to create action items
+async function createActionItem(phone, customerName, type, description, priority = 'normal') {
+  try {
+    await pool.query(
+      'INSERT INTO action_items(phone, customer_name, type, description, priority, status) VALUES($1, $2, $3, $4, $5, $6)',
+      [phone, customerName, type, description, priority, 'pending']
+    );
+    await logEvent('info', `Action item created: ${type} for ${phone}`);
+    console.log(`📋 Action item created: ${type} - ${description.substring(0, 50)}...`);
+  } catch (err) {
+    console.error('Error creating action item:', err);
+    await logEvent('error', `Failed to create action item: ${err.message}`);
+  }
+}
+
+// Detect action items from customer messages
+function detectActionItems(userMessage) {
+  const items = [];
+  const msg = userMessage.toLowerCase();
+  
+  // Address change detection
+  const addressPatterns = [
+    /(?:change|update|send|ship).*(?:address|to|location)/i,
+    /(?:can you (?:send|ship) (?:it |this )?to)/i,
+    /(?:new address|different address)/i
+  ];
+  
+  if (addressPatterns.some(pattern => pattern.test(userMessage))) {
+    items.push({
+      type: 'address_change',
+      priority: 'high',
+      addressInfo: userMessage
+    });
+  }
+  
+  // Tracking number request
+  if (msg.includes('tracking') && (msg.includes('number') || msg.includes('info'))) {
+    items.push({
+      type: 'tracking_request',
+      priority: 'normal'
+    });
+  }
+  
+  // Expedite request
+  if (msg.includes('expedite') || msg.includes('rush') || msg.includes('asap') || msg.includes('faster')) {
+    items.push({
+      type: 'expedite_order',
+      priority: 'high'
+    });
+  }
+  
+  // Cancellation
+  if (msg.includes('cancel') && !msg.includes("don't cancel") && !msg.includes("not cancel")) {
+    items.push({
+      type: 'cancellation',
+      priority: 'urgent'
+    });
+  }
+  
+  // Callback request
+  if (msg.includes('call me') || msg.includes('give me a call') || msg.includes('please call')) {
+    items.push({
+      type: 'callback_request',
+      priority: 'normal'
+    });
+  }
+  
+  return items;
+}
+
 // Add timeout middleware for all routes to prevent hanging requests
 const timeoutMiddleware = (req, res, next) => {
   const timeout = 25000; // 25 second timeout
@@ -1364,6 +1454,30 @@ app.post('/reply', async (req, res) => {
 
     const customerName = getCustomerName(customer);
     const isCustomer = customer && customerName;
+    
+    // Detect action items from customer message
+    if (isCustomer) {
+      const actionItems = detectActionItems(userMessage);
+      if (actionItems.length > 0) {
+        for (const item of actionItems) {
+          let description = '';
+          
+          if (item.type === 'address_change') {
+            description = `Update shipping address: ${item.addressInfo}`;
+          } else if (item.type === 'tracking_request') {
+            description = `Customer requesting tracking number`;
+          } else if (item.type === 'expedite_order') {
+            description = `Customer requesting expedited shipping`;
+          } else if (item.type === 'cancellation') {
+            description = `Customer requesting order cancellation`;
+          } else if (item.type === 'callback_request') {
+            description = `Customer requesting callback`;
+          }
+          
+          await createActionItem(phone, customerName, item.type, description, item.priority);
+        }
+      }
+    }
 
     if (!isCustomer) {
       // Not a customer in Google Sheets - check respond-to-all mode
@@ -2312,6 +2426,77 @@ app.post('/api/system-instructions', async (req, res) => {
   } catch (err) {
     console.error("Error updating system instructions:", err);
     res.status(500).json({ error: "Failed to update system instructions" });
+  }
+});
+
+// Get action items (pending, completed, or all)
+app.get('/api/action-items', async (req, res) => {
+  try {
+    const status = req.query.status || 'pending'; // pending, completed, all
+    
+    let query = `
+      SELECT id, phone, customer_name, type, description, priority, status, 
+             created_at, completed_at, completed_by, notes
+      FROM action_items
+    `;
+    
+    if (status !== 'all') {
+      query += ` WHERE status = $1`;
+    }
+    
+    query += ` ORDER BY 
+      CASE priority 
+        WHEN 'urgent' THEN 1
+        WHEN 'high' THEN 2
+        WHEN 'normal' THEN 3
+        ELSE 4
+      END,
+      created_at DESC
+    `;
+    
+    const result = status !== 'all' 
+      ? await pool.query(query, [status])
+      : await pool.query(query);
+    
+    res.json({ actionItems: result.rows });
+  } catch (err) {
+    console.error('Error fetching action items:', err);
+    res.status(500).json({ error: 'Failed to fetch action items' });
+  }
+});
+
+// Mark action item as completed
+app.post('/api/action-items/:id/complete', async (req, res) => {
+  const itemId = req.params.id;
+  const { notes, completedBy } = req.body;
+  
+  try {
+    await pool.query(
+      `UPDATE action_items 
+       SET status = $1, completed_at = $2, completed_by = $3, notes = $4 
+       WHERE id = $5`,
+      ['completed', new Date(), completedBy || 'Admin', notes || '', itemId]
+    );
+    
+    await logEvent('info', `Action item ${itemId} marked as completed`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error completing action item:', err);
+    res.status(500).json({ error: 'Failed to complete action item' });
+  }
+});
+
+// Delete action item
+app.delete('/api/action-items/:id', async (req, res) => {
+  const itemId = req.params.id;
+  
+  try {
+    await pool.query('DELETE FROM action_items WHERE id = $1', [itemId]);
+    await logEvent('info', `Action item ${itemId} deleted`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error deleting action item:', err);
+    res.status(500).json({ error: 'Failed to delete action item' });
   }
 });
 
