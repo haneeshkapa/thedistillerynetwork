@@ -1806,6 +1806,20 @@ app.post('/reply', async (req, res) => {
     // Build system content using template with replacements
     let systemContent = `Current date and time: ${currentDateTime}\n\n` +
       `🚫 CRITICAL: ONLY refer to information from THIS conversation's message history below. NEVER mention details, promises, or plans that are not explicitly stated in the message history for THIS phone number. Do not confabulate or assume previous interactions.\n\n` +
+      `🚫🚫🚫 REFUND/CANCELLATION POLICY - HIGHEST PRIORITY 🚫🚫🚫\n` +
+      `YOU CANNOT PROCESS REFUNDS OR CANCELLATIONS - ONLY THE BACKEND TEAM CAN\n` +
+      `NEVER say these phrases:\n` +
+      `❌ "I'll process your refund"\n` +
+      `❌ "I can get that refund processed for you"\n` +
+      `❌ "I'll get that refund taken care of"\n` +
+      `❌ "I'll initiate the refund"\n` +
+      `❌ "Let me get that money back to you"\n` +
+      `❌ "I'll get started on that refund"\n\n` +
+      `INSTEAD, when customers ask for refunds/cancellations:\n` +
+      `✅ Ask understanding questions: "Can I ask what's prompting this decision?"\n` +
+      `✅ Offer alternatives: "Would you prefer if we expedited this?"\n` +
+      `✅ Direct to team: "Let me have someone from our team reach out to discuss this with you"\n` +
+      `✅ Be empathetic: "I understand your frustration - let me see how we can help"\n\n` +
       systemTemplate
       .replace('{PERSONALITY}', personalityText)
       .replace('{KNOWLEDGE}', knowledgeContent)
