@@ -555,6 +555,18 @@ function validateAndSanitizeResponse(response, orderInfo = '', customer = null) 
     console.warn(`⚠️ Response validation: Blocked specific delivery timeframe claim`);
   }
 
+  // 4c. Block "shipped" claims unless sheet status is actually Shipped
+  // This prevents the model from confirming shipment when the row is not green.
+  const positiveShippedPattern = /\b(has shipped|have shipped|been shipped|shipped out|already shipped|is on (?:its|the) way|in transit)\b/i;
+  const negativeShippedPattern = /\b(not shipped|hasn't shipped|has not shipped|haven't shipped|have not shipped|not yet shipped)\b/i;
+  if (positiveShippedPattern.test(validated) && !negativeShippedPattern.test(validated)) {
+    const orderShowsShipped = orderInfo && /Current Status:\s*Shipped\b/i.test(orderInfo);
+    if (!orderShowsShipped) {
+      flagged = true;
+      console.warn(`⚠️ Response validation: Blocked unverified shipped claim`);
+    }
+  }
+
   // 4b. Check for any mention of tracking numbers (we don't provide tracking numbers)
   // Block if response explicitly mentions "tracking number" or shows tracking number patterns
   const trackingMentionPattern = /tracking\s+number|tracking\s*#|tracking\s*code/i;
@@ -2658,7 +2670,31 @@ app.get('/', (req, res) => {
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'OK', message: 'Jonathan\'s Distillation SMS Bot is running' });
+  res.json({
+    status: 'OK',
+    message: 'Jonathan\'s Distillation SMS Bot is running',
+    render: {
+      gitCommit: process.env.RENDER_GIT_COMMIT || null,
+      gitBranch: process.env.RENDER_GIT_BRANCH || null,
+      serviceId: process.env.RENDER_SERVICE_ID || null,
+    },
+  });
+});
+
+// Debug endpoint to confirm running build on Render
+app.get('/debug/version', (req, res) => {
+  res.json({
+    node: process.version,
+    render: {
+      gitCommit: process.env.RENDER_GIT_COMMIT || null,
+      gitBranch: process.env.RENDER_GIT_BRANCH || null,
+      serviceId: process.env.RENDER_SERVICE_ID || null,
+    },
+    markers: {
+      sheetRowIndexUsesRowNumber: true,
+      colorDetectionAvoidsBackgroundColorGetter: true,
+    },
+  });
 });
 
 
