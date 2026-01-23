@@ -463,6 +463,106 @@ function normalizePhoneNumber(phone) {
   return digitsOnly;
 }
 
+function tokenizeForMatching(text) {
+  if (!text) return [];
+  return text
+    .toString()
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .map(token => token.trim())
+    .filter(Boolean);
+}
+
+const MATCHING_STOPWORDS = new Set([
+  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'been', 'but', 'by', 'can', 'could',
+  'did', 'do', 'does', 'for', 'from', 'get', 'got', 'have', 'has', 'had', 'hey',
+  'hi', 'i', "i'm", "im", 'if', 'in', 'is', 'it', "it's", 'just', 'let',
+  'like', 'me', 'my', 'of', 'on', 'or', 'our', 'please', 'so', 'that', 'the',
+  'this', 'to', 'up', 'was', 'we', 'were', 'what', 'when', 'where', 'will',
+  'with', 'you', 'your',
+  // Generic order/tracking words
+  'order', 'ordered', 'purchase', 'status', 'tracking', 'track', 'shipping',
+  'shipment', 'ship', 'shipped', 'deliver', 'delivery', 'delivered', 'arrive',
+  'arrival', 'eta',
+  // Generic product words that aren't useful for mismatch detection
+  'kit', 'set', 'complete', 'inch', 'gallon', 'still', 'stills'
+]);
+
+function getSignificantTokens(text) {
+  return tokenizeForMatching(text)
+    .filter(token => token.length >= 3)
+    .filter(token => !MATCHING_STOPWORDS.has(token));
+}
+
+function assessIntentAndRisk(userMessage) {
+  const msg = (userMessage || '').toLowerCase();
+
+  const isRefundOrCancel = /(refund|chargeback|dispute|cancel|cancellation)/i.test(msg);
+  const isAddressChange = /(change|update).*(address|shipping)|new address|ship.*to/i.test(msg);
+  const isOrderStatus = /(\b(order|status|tracking|ship|shipped|shipping|shipment|deliver|delivery|arrive|eta)\b|when will|where.*my|my.*order)/i.test(msg);
+  const isProductQuestion = /(price|cost|how much|fit|compatible|compatibility|size|dimensions|material|copper|stainless)/i.test(msg);
+  const isEscalationTone = /(scam|fraud|lawsuit|attorney|bbb|police|chargeback|unacceptable|ridiculous|angry|pissed|fuck|shit)/i.test(msg);
+
+  let intent = 'general';
+  if (isRefundOrCancel) intent = 'refund_or_cancellation';
+  else if (isAddressChange) intent = 'address_change';
+  else if (isOrderStatus) intent = 'order_status';
+  else if (isProductQuestion) intent = 'product_question';
+
+  let risk = 'low';
+  if (isEscalationTone) risk = 'high';
+  else if (isRefundOrCancel || isAddressChange) risk = 'high';
+  else if (isOrderStatus) risk = 'medium';
+
+  let strategy = 'answer';
+  if (risk === 'high') strategy = 'clarify_or_escalate';
+  else if (intent === 'order_status') strategy = 'answer_with_status';
+
+  const reasons = [];
+  if (isRefundOrCancel) reasons.push('refund/cancel language');
+  if (isAddressChange) reasons.push('address change language');
+  if (isOrderStatus) reasons.push('order/tracking language');
+  if (isEscalationTone) reasons.push('escalation/strong tone');
+
+  return { intent, risk, strategy, reasons };
+}
+
+function shouldAskProductClarification(userMessage, productOrdered) {
+  const msgTokens = new Set(getSignificantTokens(userMessage));
+  const productTokens = new Set(getSignificantTokens(productOrdered));
+
+  const overlap = Array.from(msgTokens).filter(token => productTokens.has(token));
+  const extras = Array.from(msgTokens).filter(token => !productTokens.has(token));
+
+  // Ask for clarification when the customer uses a descriptor that's not in the product name,
+  // but there is still some overlap suggesting they're referring to the same order.
+  if (overlap.length === 0) return false;
+  if (extras.length === 0) return false;
+
+  // If the only difference is generic words, don't bother.
+  const meaningfulExtras = extras.filter(token => token.length >= 4);
+  return meaningfulExtras.length > 0;
+}
+
+function buildProductClarificationMessage({
+  customerName,
+  productOrdered,
+  orderDate,
+  hasOrderDate,
+  statusDescription,
+  userMessage,
+}) {
+  if (!productOrdered) return null;
+  if (!shouldAskProductClarification(userMessage, productOrdered)) return null;
+
+  const firstName = (customerName || '').toString().trim().split(/\s+/)[0] || null;
+  const datePart = hasOrderDate ? ` (ordered ${orderDate})` : '';
+  const greeting = firstName ? `${firstName}, ` : '';
+
+  return `${greeting}just to confirm, are you referring to your order for the ${productOrdered}${datePart}? Right now it's marked as: ${statusDescription}.`;
+}
+
 // Cache for status column index to avoid repeated header lookups
 let statusColumnIndexCache = null;
 
@@ -1230,6 +1330,10 @@ app.post('/reply', async (req, res) => {
 
   await logEvent('info', `Received SMS from ${phone}: "${userMessage}"`);
 
+  // Intent + risk assessment (used to guide response strategy)
+  let intentAssessment = assessIntentAndRisk(userMessage);
+  let responseOverride = null;
+
   // Check if AI is enabled
   const aiEnabled = await isAIEnabled();
   if (!aiEnabled) {
@@ -1660,6 +1764,31 @@ app.post('/reply', async (req, res) => {
           console.error('Error reading cell colors:', colorError);
           await logEvent('error', `Failed to read cell colors for ${phone}: ${colorError.message}`);
         }
+
+        // If the customer uses product wording that doesn't match the exact product on file,
+        // ask a clarifying question instead of guessing.
+        if (!responseOverride) {
+          const clarificationMessage = buildProductClarificationMessage({
+            customerName,
+            productOrdered,
+            orderDate,
+            hasOrderDate,
+            statusDescription,
+            userMessage,
+          });
+
+          if (clarificationMessage) {
+            responseOverride = clarificationMessage;
+            intentAssessment = {
+              ...intentAssessment,
+              intent: 'order_status',
+              risk: intentAssessment.risk === 'high' ? 'high' : 'medium',
+              strategy: 'clarify_product',
+              reasons: Array.from(new Set([...(intentAssessment.reasons || []), 'product wording mismatch'])),
+            };
+            await logEvent('info', `Product clarification triggered for ${phone}`);
+          }
+        }
         
         orderInfo = `\n\n🚨🚨🚨 THIS CUSTOMER'S SPECIFIC ORDER DATA - USE ONLY THIS INFO 🚨🚨🚨\n`;
         orderInfo += `⚠️ CRITICAL: The product information below is from THIS CUSTOMER'S actual order in our database.\n`;
@@ -1841,6 +1970,11 @@ app.post('/reply', async (req, res) => {
     // Build system content using template with replacements
     let systemContent = `Current date and time: ${currentDateTime}\n\n` +
       `🚫 CRITICAL: ONLY refer to information from THIS conversation's message history below. NEVER mention details, promises, or plans that are not explicitly stated in the message history for THIS phone number. Do not confabulate or assume previous interactions.\n\n` +
+      `📌 MESSAGE INTENT + RISK (pre-analysis):\n` +
+      `Intent: ${intentAssessment.intent}\n` +
+      `Risk: ${intentAssessment.risk}\n` +
+      `Strategy: ${intentAssessment.strategy}\n` +
+      `Signals: ${(intentAssessment.reasons || []).join(', ') || 'none'}\n\n` +
       `🚫🚫🚫 REFUND/CANCELLATION POLICY - HIGHEST PRIORITY 🚫🚫🚫\n` +
       `YOU CANNOT PROCESS REFUNDS OR CANCELLATIONS - ONLY THE BACKEND TEAM CAN\n` +
       `NEVER say these phrases:\n` +
@@ -1880,80 +2014,82 @@ app.post('/reply', async (req, res) => {
       messages.push({ role: "user", content: sanitizedMessage || userMessage });
     }
 
-    // Call Claude API
-    let aiResponse = null;
-    try {
-      const completion = await anthropicClient.messages.create({
-        model: ANTHROPIC_MODEL,
-        max_tokens: 180,
-        temperature: 0.1, // Very low temp to minimize creative/roleplay behavior
-        system: systemContent,
-        messages: messages
-      });
-
-      aiResponse = completion.content[0].text.trim();
-      
-      // Clean up response - remove all roleplaying actions and stage directions
-      aiResponse = aiResponse.replace(/\[VOICE\]/g, '');
-      
-      // Remove asterisk-based actions: *checks*, *pauses*, *smiles*, etc.
-      aiResponse = aiResponse.replace(/\*[^*]+\*/g, '');
-      
-      // Remove parenthetical stage directions
-      aiResponse = aiResponse.replace(/\([^)]*(?:pauses|checks|looks|smiles|grins|chuckles|laughs|nods|shrugs)[^)]*\)/gi, '');
-      
-      // Clean up any double spaces or weird formatting from removals
-      aiResponse = aiResponse.replace(/\s{2,}/g, ' ').trim();
-      
-      // Remove leading/trailing spaces from each line
-      aiResponse = aiResponse.split('\n').map(line => line.trim()).filter(line => line).join('\n\n');
-
-      // Handle image messages specially
-      if (mediaUrl && mediaUrl !== '') {
-        if (aiResponse && !aiResponse.toLowerCase().includes('picture') && !aiResponse.toLowerCase().includes('image')) {
-          aiResponse += "\n\nI see you sent a picture - I can't view images directly, but feel free to describe what you're showing me and I'll help however I can!";
-        }
-      }
-
-    } catch (apiErr) {
-      console.error("Claude API error:", apiErr);
-      console.error("Error details:", {
-        phone,
-        userMessage: userMessage.substring(0, 100),
-        messageLength: userMessage.length,
-        hasMedia: !!mediaUrl,
-        sanitizedMessage: sanitizedMessage.substring(0, 100),
-        statusCode: apiErr.status,
-        errorType: apiErr.error?.type,
-        errorMessage: apiErr.error?.message
-      });
-
-      // Log detailed error for debugging
-      const errorDetail = `Claude API error: ${apiErr.status || 'unknown'} - ${apiErr.error?.type || 'unknown'} - ${apiErr.error?.message || apiErr.message}`;
-      await logEvent('error', `Claude API request failed for ${phone}: ${errorDetail} - Message: "${userMessage.substring(0, 50)}"`);
-
-      // Special handling for image messages
-      let errorReply;
-      if (mediaUrl && mediaUrl !== '') {
-        errorReply = "Thanks for the picture! I'm having trouble processing it right now. Can you describe what you're showing me? Or call (603) 997-6786 for direct assistance.";
-      } else {
-        errorReply = "Sorry, I'm having trouble right now. Please call (603) 997-6786 for assistance.";
-      }
-
-      // Add retry logic for transient errors
-      if (apiErr.status === 429 || apiErr.status === 503 || apiErr.status === 502) {
-        errorReply = "I'm experiencing high load right now. Please try again in a moment or call (603) 997-6786 for immediate assistance.";
-      }
-
+    // Call Claude API (unless we already selected a safer response strategy)
+    let aiResponse = responseOverride;
+    if (!aiResponse) {
       try {
-        await pool.query(
-          'INSERT INTO messages(phone, sender, message, timestamp) VALUES($1, $2, $3, $4)',
-          [phone, 'assistant', errorReply, new Date()]
-        );
-      } catch (dbErr) {
-        console.error('Failed to log error message to database:', dbErr);
+        const completion = await anthropicClient.messages.create({
+          model: ANTHROPIC_MODEL,
+          max_tokens: 180,
+          temperature: 0.1, // Very low temp to minimize creative/roleplay behavior
+          system: systemContent,
+          messages: messages
+        });
+
+        aiResponse = completion.content[0].text.trim();
+        
+        // Clean up response - remove all roleplaying actions and stage directions
+        aiResponse = aiResponse.replace(/\[VOICE\]/g, '');
+        
+        // Remove asterisk-based actions: *checks*, *pauses*, *smiles*, etc.
+        aiResponse = aiResponse.replace(/\*[^*]+\*/g, '');
+        
+        // Remove parenthetical stage directions
+        aiResponse = aiResponse.replace(/\([^)]*(?:pauses|checks|looks|smiles|grins|chuckles|laughs|nods|shrugs)[^)]*\)/gi, '');
+        
+        // Clean up any double spaces or weird formatting from removals
+        aiResponse = aiResponse.replace(/\s{2,}/g, ' ').trim();
+        
+        // Remove leading/trailing spaces from each line
+        aiResponse = aiResponse.split('\n').map(line => line.trim()).filter(line => line).join('\n\n');
+
+        // Handle image messages specially
+        if (mediaUrl && mediaUrl !== '') {
+          if (aiResponse && !aiResponse.toLowerCase().includes('picture') && !aiResponse.toLowerCase().includes('image')) {
+            aiResponse += "\n\nI see you sent a picture - I can't view images directly, but feel free to describe what you're showing me and I'll help however I can!";
+          }
+        }
+
+      } catch (apiErr) {
+        console.error("Claude API error:", apiErr);
+        console.error("Error details:", {
+          phone,
+          userMessage: userMessage.substring(0, 100),
+          messageLength: userMessage.length,
+          hasMedia: !!mediaUrl,
+          sanitizedMessage: sanitizedMessage.substring(0, 100),
+          statusCode: apiErr.status,
+          errorType: apiErr.error?.type,
+          errorMessage: apiErr.error?.message
+        });
+
+        // Log detailed error for debugging
+        const errorDetail = `Claude API error: ${apiErr.status || 'unknown'} - ${apiErr.error?.type || 'unknown'} - ${apiErr.error?.message || apiErr.message}`;
+        await logEvent('error', `Claude API request failed for ${phone}: ${errorDetail} - Message: "${userMessage.substring(0, 50)}"`);
+
+        // Special handling for image messages
+        let errorReply;
+        if (mediaUrl && mediaUrl !== '') {
+          errorReply = "Thanks for the picture! I'm having trouble processing it right now. Can you describe what you're showing me? Or call (603) 997-6786 for direct assistance.";
+        } else {
+          errorReply = "Sorry, I'm having trouble right now. Please call (603) 997-6786 for assistance.";
+        }
+
+        // Add retry logic for transient errors
+        if (apiErr.status === 429 || apiErr.status === 503 || apiErr.status === 502) {
+          errorReply = "I'm experiencing high load right now. Please try again in a moment or call (603) 997-6786 for immediate assistance.";
+        }
+
+        try {
+          await pool.query(
+            'INSERT INTO messages(phone, sender, message, timestamp) VALUES($1, $2, $3, $4)',
+            [phone, 'assistant', errorReply, new Date()]
+          );
+        } catch (dbErr) {
+          console.error('Failed to log error message to database:', dbErr);
+        }
+        return res.status(200).type('text/plain').send(errorReply);
       }
-      return res.status(200).type('text/plain').send(errorReply);
     }
 
     if (!aiResponse) {
