@@ -1705,6 +1705,7 @@ app.post('/reply', async (req, res) => {
         } else if (statusColor === "purple") {
           orderInfo += `⚠️ PURPLE STATUS - Order being expedited:\n`;
           orderInfo += `- Tell customer their order is being expedited/prioritized\n`;
+          orderInfo += `- Do NOT say it has shipped yet (it's still in production)\n`;
           orderInfo += `- Show appreciation for their patience\n`;
           orderInfo += `- Offer to call with specific timeline update\n`;
         } else if (statusColor === "yellow") {
@@ -1739,7 +1740,11 @@ app.post('/reply', async (req, res) => {
         orderInfo += `\n🚫 DELIVERY TRACKING RULES:\n`;
         orderInfo += `- We do NOT have real-time delivery tracking data in this system\n`;
         orderInfo += `- NEVER provide specific tracking numbers - they are not in our database\n`;
-        orderInfo += `- You CAN say general things like "has shipped", "is on the way", "in transit"\n`;
+        if (statusColor === "green") {
+          orderInfo += `- You CAN say general things like "has shipped", "is on the way", "in transit"\n`;
+        } else {
+          orderInfo += `- Do NOT say "has shipped"/"on the way"/"in transit" unless Current Status is "Shipped"\n`;
+        }
         orderInfo += `- NEVER say SPECIFIC timeframes: "arriving today", "out for delivery", "will arrive tomorrow"\n`;
         orderInfo += `- If status is "Shipped", confirm it shipped and say it's on the way - that's fine\n`;
         orderInfo += `- For tracking questions, say you can "look that up" and offer to call back or provide (603) 997-6786\n`;
