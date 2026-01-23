@@ -719,7 +719,8 @@ async function findCustomerByPhone(phone) {
       if (normalizedRowPhone === normalizedInputPhone) {
         console.log(`✅ EXACT MATCH found at Row ${index}`);
         foundCustomer = row;
-        foundRowIndex = index + 1; // Google Sheets is 1-indexed
+        // google-spreadsheet rows start at sheet row 2 (row 1 is headers)
+        foundRowIndex = row.rowNumber || (index + 2);
         return;
       }
       
@@ -731,7 +732,8 @@ async function findCustomerByPhone(phone) {
         if (rowLast10 === inputLast10) {
           console.log(`✅ PARTIAL MATCH found at Row ${index} (last 10 digits)`);
           foundCustomer = row;
-          foundRowIndex = index + 1; // Google Sheets is 1-indexed
+          // google-spreadsheet rows start at sheet row 2 (row 1 is headers)
+          foundRowIndex = row.rowNumber || (index + 2);
           return;
         }
       }
@@ -832,14 +834,16 @@ async function findAllOrdersByPhone(phone) {
       }
 
       if (isMatch) {
-        row.googleRowIndex = index + 1;
+        // google-spreadsheet rows start at sheet row 2 (row 1 is headers)
+        const sheetRowIndex = row.rowNumber || (index + 2);
+        row.googleRowIndex = sheetRowIndex;
         row.orderSummary = {
           product: getProductFromRow(row),
           date: getOrderDateFromRow(row),
-          rowIndex: index + 1
+          rowIndex: sheetRowIndex
         };
         matchingOrders.push(row);
-        console.log(`✅ Found order ${matchingOrders.length} at Row ${index + 1}: ${row.orderSummary.product}`);
+        console.log(`✅ Found order ${matchingOrders.length} at Row ${sheetRowIndex}: ${row.orderSummary.product}`);
       }
     });
 
@@ -1540,7 +1544,8 @@ app.post('/reply', async (req, res) => {
 
         try {
           // Load only specific cells to reduce memory usage
-          const rowIndex = customer.googleRowIndex;
+          // Prefer the real sheet row number if available; googleRowIndex may be cached/derived.
+          const rowIndex = customer.rowNumber || customer.googleRowIndex;
 
           // Make color column configurable and expandable
           const colorColumnIndex = process.env.GOOGLE_SHEET_COLOR_COLUMN ?
@@ -1551,26 +1556,39 @@ app.post('/reply', async (req, res) => {
           await customerSheet.loadCells(`A${rowIndex}:${columnLetter}${rowIndex}`);
           console.log(`📋 Loading cells A${rowIndex}:${columnLetter}${rowIndex} for status check`);
 
-          // Since entire row is colored for status, read from first few columns to detect row color
-          // Try multiple columns since the whole row should have the same background color
-          let statusCell = null;
-          let statusColIndex = 0;
+          // Since entire row is colored for status, read from first few columns to detect row color.
+          // Avoid the library's `cell.backgroundColor` getter because it throws when `userEnteredFormat`
+          // is undefined (unformatted cells).
+          const isWhite = (color) => {
+            if (!color) return true;
+            const red = color.red ?? 0;
+            const green = color.green ?? 0;
+            const blue = color.blue ?? 0;
+            return red > 0.95 && green > 0.95 && blue > 0.95;
+          };
 
-          // Try columns A through F to find one with background color (since whole row is colored)
+          let statusColIndex = 0;
+          let bgColor = null;
+
+          // Try columns A through F to find one with an explicit or non-white effective background.
           for (let colIndex = 0; colIndex < 6; colIndex++) {
             const testCell = customerSheet.getCell(rowIndex - 1, colIndex);
-            if (testCell && testCell.backgroundColor) {
-              statusCell = testCell;
+            if (!testCell) continue;
+
+            const userBg = testCell.userEnteredFormat?.backgroundColor;
+            const effectiveBg = testCell.effectiveFormat?.backgroundColor;
+            const candidateBg = userBg || (!isWhite(effectiveBg) ? effectiveBg : null);
+
+            if (candidateBg) {
               statusColIndex = colIndex;
+              bgColor = candidateBg;
               break;
             }
           }
 
           // Log the cell position and color for audit
           console.log(`🎨 Row color detected from Column ${statusColIndex} (${String.fromCharCode(65 + statusColIndex)}) at Row ${rowIndex}`);
-          if (statusCell && statusCell.backgroundColor) {
-            const bgColor = statusCell.backgroundColor;
-            
+          if (bgColor) {
             // Normalize undefined color values to 0
             const red = bgColor.red || 0;
             const green = bgColor.green || 0;
@@ -1599,7 +1617,7 @@ app.post('/reply', async (req, res) => {
               internalStatus = "In production (YELLOW)";
               customerFacingStatus = "In production";
               statusColor = "yellow";
-            } else if (red > 0.7 && green < 0.7 && blue > 0.7) {
+            } else if (red > 0.45 && green < 0.6 && blue > 0.7) {
               // Purple - Expediting order (at risk of cancellation)
               internalStatus = "Expediting order - at risk of cancellation (PURPLE)";
               customerFacingStatus = "In production - being expedited";
